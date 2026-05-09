@@ -19,6 +19,7 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir faster-whisper
 
 COPY . .
 
+RUN npm run db:generate
 RUN npm run download:quran
 RUN npm run build:web
 

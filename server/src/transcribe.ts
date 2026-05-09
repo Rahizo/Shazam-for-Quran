@@ -68,7 +68,7 @@ async function callDeepSeek(messages: Array<{ role: "system" | "user"; content: 
 }
 
 export async function refineArabicTranscriptWithDeepSeek(transcript: string): Promise<string> {
-  if (!process.env.DEEPSEEK_API_KEY || transcript.trim().length === 0) {
+  if (process.env.DEEPSEEK_REFINE_TRANSCRIPTS !== "true" || !process.env.DEEPSEEK_API_KEY || transcript.trim().length === 0) {
     return transcript;
   }
 

@@ -32,12 +32,47 @@ EXPO_PUBLIC_API_BASE_URL=
 CORS_ORIGIN=
 API_RATE_LIMIT_PER_HOUR=30
 PORT=8787
+AUTH_SECRET=generate-a-long-random-string
+DATABASE_URL=postgresql://...
+APP_URL=https://your-domain.com
+FREE_DAILY_RECOGNITIONS=5
+PRO_MONTHLY_RECOGNITIONS=100
+STRIPE_SECRET_KEY=sk_live_or_test_key
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_MONTHLY_PRICE_ID=price_monthly
+STRIPE_YEARLY_PRICE_ID=price_yearly
 ```
 
 Notes:
 - Leave `EXPO_PUBLIC_API_BASE_URL` empty when the website and API are served by the same container.
 - Leave `CORS_ORIGIN` empty for same-origin deployment. If you split frontend/backend later, set it to your website origin, for example `https://yourdomain.com`.
 - Raise or lower `API_RATE_LIMIT_PER_HOUR` after you understand real usage.
+- The app can boot without `DATABASE_URL`, but saved accounts/progress will use an ephemeral JSON fallback. Use Postgres before charging users.
+
+## 2A. Database And Stripe Setup
+
+1. Create a free Postgres database on Neon, Supabase, Railway, or Render Postgres.
+2. Copy its connection string into `DATABASE_URL`.
+3. Locally or in a one-off job, run:
+   ```bash
+   npm run db:generate
+   npm run db:push
+   ```
+4. In Stripe, create two recurring prices:
+   - `$2.99/month`
+   - `$24.99/year`
+5. Copy the price IDs into:
+   - `STRIPE_MONTHLY_PRICE_ID`
+   - `STRIPE_YEARLY_PRICE_ID`
+6. Add a webhook endpoint:
+   ```text
+   https://your-domain.com/api/billing/webhook
+   ```
+7. Subscribe the webhook to:
+   - `checkout.session.completed`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+8. Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 
 ## 3. Deploy On Render
 
@@ -107,6 +142,7 @@ After every deploy:
 3. If traffic grows, add login/payment before increasing limits.
 4. Cache local Whisper models and reference audio on persistent storage if your host supports disks.
 5. Monitor OpenAI usage daily during launch week.
+6. Keep `FREE_DAILY_RECOGNITIONS=5` and `PRO_MONTHLY_RECOGNITIONS=100` until you know your average transcription cost.
 
 ## 8. Legal And Trust Checklist
 

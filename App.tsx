@@ -11,9 +11,28 @@ import {
   TextInput,
   View
 } from "react-native";
-import { fetchSurahs, identifyRecitation, IdentifyResponse, MatchCandidate, RecognitionMode, SurahOption } from "./src/api";
+import {
+  createCheckout,
+  DashboardSummary,
+  fetchDashboard,
+  fetchMe,
+  fetchSurahs,
+  identifyRecitation,
+  identifyText,
+  IdentifyResponse,
+  login,
+  logout,
+  MatchCandidate,
+  PublicUser,
+  RecognitionMode,
+  saveCorrection,
+  saveMemorization,
+  signup,
+  SurahOption
+} from "./src/api";
 
 type Status = "idle" | "recording" | "processing" | "results" | "error";
+type Section = "recognize" | "coach" | "pricing" | "privacy" | "terms";
 
 const popularSurahs = new Set([1, 2, 18, 36, 55, 67, 78, 87, 93, 94, 95, 96, 97, 99, 100, 103, 108, 109, 112, 113, 114]);
 
@@ -55,6 +74,16 @@ export default function App() {
   const [recordingLevel, setRecordingLevel] = useState(0);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>("openai_hybrid");
+  const [section, setSection] = useState<Section>("recognize");
+  const [user, setUser] = useState<PublicUser | null>(null);
+  const [usage, setUsage] = useState<IdentifyResponse["usage"]>();
+  const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("signup");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [typedQuery, setTypedQuery] = useState("");
+  const [savingMatchKey, setSavingMatchKey] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -99,6 +128,13 @@ export default function App() {
   }, [duration, recognitionMode, result?.lowConfidence, status]);
 
   useEffect(() => {
+    fetchMe()
+      .then((payload) => {
+        setUser(payload.user);
+        setUsage(payload.usage);
+      })
+      .catch(() => undefined);
+
     fetchSurahs()
       .then(setSurahs)
       .catch(() => {
@@ -122,6 +158,101 @@ export default function App() {
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  useEffect(() => {
+    if (section === "coach" && user) {
+      refreshDashboard().catch(() => undefined);
+    }
+  }, [section, user]);
+
+  async function refreshDashboard() {
+    const summary = await fetchDashboard();
+    setDashboard(summary);
+    setUsage(summary.usage);
+  }
+
+  async function submitAuth() {
+    setAuthMessage("");
+    try {
+      const payload = authMode === "signup" ? await signup(email, password) : await login(email, password);
+      setUser(payload.user);
+      setUsage(payload.usage);
+      setEmail("");
+      setPassword("");
+      setAuthMessage(authMode === "signup" ? "Account created. You can now save memorization progress." : "Signed in.");
+    } catch (caught) {
+      setAuthMessage(caught instanceof Error ? caught.message : "Authentication failed.");
+    }
+  }
+
+  async function signOut() {
+    await logout();
+    setUser(null);
+    setDashboard(null);
+    setAuthMessage("Signed out.");
+    const payload = await fetchMe().catch(() => null);
+    setUsage(payload?.usage);
+  }
+
+  async function runTextSearch() {
+    if (!typedQuery.trim()) {
+      return;
+    }
+    setStatus("processing");
+    setError("");
+    try {
+      const identified = await identifyText(typedQuery, selectedSurahs);
+      setResult(identified);
+      setUsage(identified.usage);
+      setStatus("results");
+      if (user) {
+        refreshDashboard().catch(() => undefined);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to search this text.");
+      setStatus("error");
+    }
+  }
+
+  async function startCheckout(interval: "month" | "year") {
+    if (!user) {
+      setAuthMessage("Create a free account first, then choose Pro.");
+      setSection("pricing");
+      return;
+    }
+    try {
+      const url = await createCheckout(interval);
+      if (Platform.OS === "web") {
+        window.location.href = url;
+      }
+    } catch (caught) {
+      setAuthMessage(caught instanceof Error ? caught.message : "Stripe checkout is not configured yet.");
+    }
+  }
+
+  async function saveMatch(match: MatchCandidate) {
+    if (!user) {
+      setAuthMessage("Create a free account to save this to your memorization coach.");
+      return;
+    }
+    const key = `${match.surahNumber}-${match.ayahStart}-${match.ayahEnd}`;
+    setSavingMatchKey(key);
+    try {
+      await saveMemorization(match, match.confidence < 0.45 ? "low_confidence" : "needs_review");
+      await saveCorrection({ transcript: result?.transcript, verdict: "correct", actual: match });
+      await refreshDashboard();
+      setAuthMessage("Saved to your memorization coach.");
+    } catch (caught) {
+      setAuthMessage(caught instanceof Error ? caught.message : "Could not save this ayah.");
+    } finally {
+      setSavingMatchKey(null);
+    }
+  }
+
+  async function reportWrong(match: MatchCandidate) {
+    await saveCorrection({ transcript: result?.transcript, verdict: "wrong", actual: match }).catch(() => undefined);
+    setAuthMessage("Thanks. That correction was saved to improve ranking later.");
+  }
 
   function clearTimer() {
     if (timerRef.current) {
@@ -299,7 +430,11 @@ export default function App() {
 
         const identified = await identifyRecitation(recordingBlob, selectedSurahs, recognitionMode);
         setResult(identified);
+        setUsage(identified.usage);
         setStatus("results");
+        if (user) {
+          refreshDashboard().catch(() => undefined);
+        }
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Unable to identify this recitation.");
         setStatus("error");
@@ -336,7 +471,11 @@ export default function App() {
 
       const identified = await identifyRecitation(uri, selectedSurahs, recognitionMode);
       setResult(identified);
+      setUsage(identified.usage);
       setStatus("results");
+      if (user) {
+        refreshDashboard().catch(() => undefined);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to identify this recitation.");
       setStatus("error");
@@ -379,6 +518,47 @@ export default function App() {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.topNav}>
+          <Text style={styles.brand}>Ayah Finder</Text>
+          <View style={styles.navLinks}>
+            {(["recognize", "coach", "pricing", "privacy", "terms"] as Section[]).map((item) => (
+              <Pressable key={item} onPress={() => setSection(item)} style={[styles.navButton, section === item && styles.activeNavButton]}>
+                <Text style={[styles.navButtonText, section === item && styles.activeNavButtonText]}>
+                  {item === "recognize" ? "Recognize" : item === "coach" ? "Coach" : item === "pricing" ? "Pricing" : item === "privacy" ? "Privacy" : "Terms"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.accountPanel}>
+          <View style={styles.accountSummary}>
+            <Text style={styles.accountTitle}>{user ? `Signed in as ${user.email}` : "Free Quran recognition"}</Text>
+            <Text style={styles.accountMeta}>
+              {usage
+                ? `${usage.remaining} of ${usage.limit} ${usage.period === "day" ? "daily" : "monthly"} recognitions remaining (${usage.plan.replace("_", " ")})`
+                : "Create an account to save history and memorization progress."}
+            </Text>
+          </View>
+          {user ? (
+            <Pressable style={styles.secondaryButton} onPress={signOut}>
+              <Text style={styles.secondaryButtonText}>Sign out</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.authForm}>
+              <TextInput value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor="#7d8884" style={styles.authInput} autoCapitalize="none" />
+              <TextInput value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#7d8884" style={styles.authInput} secureTextEntry />
+              <Pressable style={styles.primarySmallButton} onPress={submitAuth}>
+                <Text style={styles.primarySmallButtonText}>{authMode === "signup" ? "Create account" : "Sign in"}</Text>
+              </Pressable>
+              <Pressable onPress={() => setAuthMode(authMode === "signup" ? "login" : "signup")}>
+                <Text style={styles.linkText}>{authMode === "signup" ? "I already have an account" : "Create a new account"}</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+        {authMessage ? <Text style={styles.noticeText}>{authMessage}</Text> : null}
+
         <View style={styles.header}>
           <View>
             <Text style={styles.kicker}>Quran Recognition</Text>
@@ -387,6 +567,81 @@ export default function App() {
           <Text style={styles.subtitle}>{guidance}</Text>
         </View>
 
+        {section === "pricing" ? (
+          <View style={styles.pricingGrid}>
+            <View style={styles.pricingCard}>
+              <Text style={styles.matchTitle}>Free</Text>
+              <Text style={styles.priceText}>$0</Text>
+              <Text style={styles.translation}>Limited daily recognition, Quran text matches, translations, and playback.</Text>
+              <Pressable style={styles.secondaryButton} onPress={() => setSection("recognize")}>
+                <Text style={styles.secondaryButtonText}>Start free</Text>
+              </Pressable>
+            </View>
+            <View style={[styles.pricingCard, styles.featuredPricingCard]}>
+              <Text style={styles.matchTitle}>Support + Pro</Text>
+              <Text style={styles.priceText}>$2.99/mo</Text>
+              <Text style={styles.translation}>Higher limits, saved history, memorization coach, weak ayah tracking, and progress dashboard.</Text>
+              <Pressable style={styles.playButton} onPress={() => startCheckout("month")}>
+                <Text style={styles.playButtonText}>Upgrade monthly</Text>
+              </Pressable>
+            </View>
+            <View style={styles.pricingCard}>
+              <Text style={styles.matchTitle}>Annual Pro</Text>
+              <Text style={styles.priceText}>$24.99/yr</Text>
+              <Text style={styles.translation}>Best value for steady memorization practice and supporting continued development.</Text>
+              <Pressable style={styles.playButton} onPress={() => startCheckout("year")}>
+                <Text style={styles.playButtonText}>Upgrade yearly</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {section === "coach" ? (
+          <View style={styles.results}>
+            <Text style={styles.sectionTitle}>Memorization Coach</Text>
+            {!user ? <Text style={styles.emptyText}>Create a free account to save ayahs, track weak spots, and build a review list.</Text> : null}
+            {user ? (
+              <View style={styles.statsGrid}>
+                <View style={styles.statBox}>
+                  <Text style={styles.confidence}>{dashboard?.stats.totalRecognitions || 0}</Text>
+                  <Text style={styles.matchMeta}>Saved sessions</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.confidence}>{dashboard?.stats.dueReviews || 0}</Text>
+                  <Text style={styles.matchMeta}>Due reviews</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.confidence}>{dashboard?.stats.weakAyahs || 0}</Text>
+                  <Text style={styles.matchMeta}>Weak ayahs</Text>
+                </View>
+              </View>
+            ) : null}
+            {dashboard?.memorization.map((item) => (
+              <View key={item.id} style={styles.matchCard}>
+                <Text style={styles.matchTitle}>{item.surahName}</Text>
+                <Text style={styles.matchMeta}>{item.surahNumber}:{item.ayahStart === item.ayahEnd ? item.ayahStart : `${item.ayahStart}-${item.ayahEnd}`} - {item.status.replace("_", " ")}</Text>
+              </View>
+            ))}
+            {user && dashboard?.memorization.length === 0 ? <Text style={styles.emptyText}>Save an ayah from a recognition result to start your review list.</Text> : null}
+          </View>
+        ) : null}
+
+        {section === "privacy" ? (
+          <View style={styles.legalPanel}>
+            <Text style={styles.sectionTitle}>Privacy</Text>
+            <Text style={styles.translation}>Recordings are uploaded only for recognition and deleted after processing. If you create an account, we store your email, plan, usage, saved history, memorization items, and correction feedback. OpenAI may process audio in OpenAI Hybrid mode. DeepSeek may process text if transcript cleanup is enabled.</Text>
+          </View>
+        ) : null}
+
+        {section === "terms" ? (
+          <View style={styles.legalPanel}>
+            <Text style={styles.sectionTitle}>Terms</Text>
+            <Text style={styles.translation}>This service provides ranked possible Quran matches and memorization tools. Results may be inaccurate and should not be treated as religious authority. Do not abuse the service, overload the API, or represent its output as guaranteed.</Text>
+          </View>
+        ) : null}
+
+        {section === "recognize" ? (
+          <>
         <View style={styles.layout}>
           <View style={styles.recorderPanel}>
             <Text style={styles.panelTitle}>Recorder</Text>
@@ -477,6 +732,22 @@ export default function App() {
           </View>
         </View>
 
+        <View style={styles.textSearchPanel}>
+          <Text style={styles.panelTitle}>Typed Arabic Search</Text>
+          <Text style={styles.helperText}>Paste Arabic words you remember and search the same Quran matcher without recording.</Text>
+          <TextInput
+            value={typedQuery}
+            onChangeText={setTypedQuery}
+            placeholder="اكتب كلمات من الآية هنا"
+            placeholderTextColor="#7d8884"
+            style={[styles.searchInput, styles.textArea]}
+            multiline
+          />
+          <Pressable style={styles.playButton} onPress={runTextSearch}>
+            <Text style={styles.playButtonText}>Search text</Text>
+          </Pressable>
+        </View>
+
         {status === "error" ? <Text style={styles.errorText}>{error}</Text> : null}
 
         {result ? (
@@ -525,12 +796,22 @@ export default function App() {
                     {playingKey === `${match.surahNumber}-${match.ayahStart}-${match.ayahEnd}` ? "Stop recitation" : "Play recitation"}
                   </Text>
                 </Pressable>
+                <View style={styles.resultActions}>
+                  <Pressable style={styles.secondaryButton} onPress={() => saveMatch(match)}>
+                    <Text style={styles.secondaryButtonText}>{savingMatchKey === `${match.surahNumber}-${match.ayahStart}-${match.ayahEnd}` ? "Saving..." : "Save to coach"}</Text>
+                  </Pressable>
+                  <Pressable style={styles.secondaryButton} onPress={() => reportWrong(match)}>
+                    <Text style={styles.secondaryButtonText}>Wrong match</Text>
+                  </Pressable>
+                </View>
               </View>
             ))}
             {result.matches.length === 0 ? (
               <Text style={styles.emptyText}>No confident matches. Try a clearer 15-30 second recording, or select the likely surahs before recording.</Text>
             ) : null}
           </View>
+        ) : null}
+          </>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -548,6 +829,108 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     padding: 24,
     gap: 22
+  },
+  topNav: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingTop: 14
+  },
+  brand: {
+    color: "#0f766e",
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  navLinks: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  navButton: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    backgroundColor: "#fffdf8"
+  },
+  activeNavButton: {
+    borderColor: "#0f766e",
+    backgroundColor: "#0f766e"
+  },
+  navButtonText: {
+    color: "#17211f",
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  activeNavButtonText: {
+    color: "#fff"
+  },
+  accountPanel: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 12,
+    backgroundColor: "#fffdf8",
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8,
+    padding: 14
+  },
+  accountSummary: {
+    flexShrink: 1,
+    gap: 4
+  },
+  accountTitle: {
+    color: "#17211f",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  accountMeta: {
+    color: "#64736f",
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  authForm: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  authInput: {
+    minHeight: 40,
+    minWidth: 170,
+    borderWidth: 1,
+    borderColor: "#cfc5b5",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    color: "#17211f",
+    backgroundColor: "#fff",
+    fontSize: 14
+  },
+  primarySmallButton: {
+    borderRadius: 8,
+    backgroundColor: "#0f766e",
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  primarySmallButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  linkText: {
+    color: "#0f766e",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  noticeText: {
+    color: "#0f766e",
+    fontSize: 14,
+    fontWeight: "800"
   },
   header: {
     gap: 10,
@@ -597,6 +980,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd3c3",
     borderRadius: 8
+  },
+  textSearchPanel: {
+    gap: 12,
+    padding: 18,
+    backgroundColor: "#fffdf8",
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8
+  },
+  textArea: {
+    minHeight: 90,
+    textAlignVertical: "top",
+    writingDirection: "rtl"
   },
   panelHeader: {
     alignItems: "flex-start",
@@ -782,6 +1178,51 @@ const styles = StyleSheet.create({
   results: {
     gap: 14
   },
+  pricingGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14
+  },
+  pricingCard: {
+    flexGrow: 1,
+    flexBasis: 260,
+    gap: 12,
+    padding: 18,
+    backgroundColor: "#fffdf8",
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8
+  },
+  featuredPricingCard: {
+    borderColor: "#0f766e"
+  },
+  priceText: {
+    color: "#0f766e",
+    fontSize: 30,
+    fontWeight: "900"
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12
+  },
+  statBox: {
+    flexGrow: 1,
+    flexBasis: 160,
+    padding: 14,
+    backgroundColor: "#fffdf8",
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8
+  },
+  legalPanel: {
+    gap: 12,
+    padding: 18,
+    backgroundColor: "#fffdf8",
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8
+  },
   resultsHeader: {
     gap: 6
   },
@@ -859,6 +1300,11 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "900"
+  },
+  resultActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10
   },
   emptyText: {
     color: "#64736f",

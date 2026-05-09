@@ -2,7 +2,7 @@ services:
   - type: web
     name: shazam-for-quran
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
     envVars:
       - key: SERVE_WEB_DIST
@@ -14,10 +14,32 @@ services:
       - key: AUDIO_REFERENCE_RECITER
         value: Alafasy_128kbps
       - key: LOCAL_WHISPER_MODEL
-        value: medium
+        value: small
       - key: EXPO_PUBLIC_API_BASE_URL
         value: ""
       - key: OPENAI_API_KEY
         sync: false
       - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_REFINE_TRANSCRIPTS
+        value: false
+      - key: FREE_DAILY_RECOGNITIONS
+        value: 5
+      - key: PRO_MONTHLY_RECOGNITIONS
+        value: 100
+      - key: API_RATE_LIMIT_PER_HOUR
+        value: 30
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_URL
+        value: https://shazam-for-quran.onrender.com
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_MONTHLY_PRICE_ID
+        sync: false
+      - key: STRIPE_YEARLY_PRICE_ID
         sync: false

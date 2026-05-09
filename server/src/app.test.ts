@@ -80,4 +80,27 @@ describe("identify API", () => {
     expect(response.body.surahs.length).toBeGreaterThan(0);
     expect(response.body.surahs[0]).toEqual({ number: 1, name: "Al-Fatihah" });
   });
+
+  it("creates an account, returns a session, and opens the dashboard", async () => {
+    const app = createApp(async () => "");
+    const email = `test-${Date.now()}@example.com`;
+    const signup = await request(app).post("/api/auth/signup").send({
+      email,
+      password: "password123"
+    });
+
+    expect(signup.status).toBe(200);
+    expect(signup.body.user.email).toBe(email);
+    expect(signup.body.token).toBeTruthy();
+
+    const dashboard = await request(app).get("/api/dashboard").set("Authorization", `Bearer ${signup.body.token}`);
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.body.usage.plan).toBe("free");
+  });
+
+  it("requires sign-in before starting checkout", async () => {
+    const app = createApp(async () => "");
+    const response = await request(app).post("/api/billing/checkout").send({ interval: "month" });
+    expect(response.status).toBe(401);
+  });
 });

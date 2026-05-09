@@ -25,6 +25,13 @@ export type IdentifyResponse = {
   recognitionMode?: "openai_hybrid" | "local_whisper";
   lowConfidence: boolean;
   matches: MatchCandidate[];
+  usage?: {
+    plan: "free" | "pro_monthly" | "pro_yearly";
+    limit: number;
+    used: number;
+    remaining: number;
+    period: "day" | "month";
+  };
   diagnostics?: {
     audioFile?: {
       bytes: number;

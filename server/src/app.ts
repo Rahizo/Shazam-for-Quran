@@ -4,12 +4,17 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { AudioMatchDiagnostics, findAudioMatches } from "./audioFingerprint";
+import { clearSessionCookie, createSessionToken, hashPassword, readSessionToken, setSessionCookie, toPublicUser, verifyPassword, verifySessionToken } from "./auth";
+import { createCheckoutSession, handleStripeWebhook } from "./billing";
 import { transcribeWithLocalWhisper } from "./localWhisper";
 import { findMatches } from "./matcher";
 import { tokenizeArabic } from "./normalizeArabic";
 import { findVerse, listSurahs, loadQuranCorpus } from "./quranData";
+import { CorrectionInput, MemorizationStatus, StoredUser } from "./saasTypes";
+import { getStore } from "./store";
 import { createConfiguredTranscriber, refineArabicTranscriptWithDeepSeek, Transcriber } from "./transcribe";
 import { IdentifyResponse, MatchCandidate } from "./types";
+import { assertRecognitionAllowed, usageSummary } from "./usage";
 
 const upload = multer({
   dest: "server/uploads",
@@ -138,7 +143,7 @@ function mergeMatches(audioMatches: MatchCandidate[], textMatches: MatchCandidat
     if (existing) {
       merged.set(matchKey(match), {
         ...existing,
-      confidence: Math.min(0.99, Math.max(existing.confidence, match.confidence) + 0.1),
+        confidence: Math.min(0.99, Math.max(existing.confidence, match.confidence) + 0.1),
         matchMethod: "hybrid"
       });
     } else {
@@ -152,13 +157,34 @@ function mergeMatches(audioMatches: MatchCandidate[], textMatches: MatchCandidat
   });
 }
 
+async function currentUser(request: express.Request): Promise<StoredUser | null> {
+  const session = verifySessionToken(readSessionToken(request));
+  return session ? getStore().findUserById(session.userId) : null;
+}
+
+function requireUser(user: StoredUser | null, response: express.Response): user is StoredUser {
+  if (!user) {
+    response.status(401).json({ error: "Sign in to use this feature." });
+    return false;
+  }
+  return true;
+}
+
 export function createApp(transcriber: Transcriber = createConfiguredTranscriber(), localTranscriber: Transcriber = transcribeWithLocalWhisper) {
   const app = express();
   const corpus = loadQuranCorpus();
   const corsOrigin = process.env.CORS_ORIGIN;
+  const store = getStore();
 
   app.disable("x-powered-by");
   app.use(cors(corsOrigin ? { origin: corsOrigin.split(",").map((origin: string) => origin.trim()) } : undefined));
+  app.post("/api/billing/webhook", express.raw({ type: "application/json" }), async (request, response) => {
+    try {
+      response.json(await handleStripeWebhook(store, request.body as Buffer, request.header("stripe-signature")));
+    } catch (error) {
+      response.status(400).json({ error: error instanceof Error ? error.message : "Webhook failed." });
+    }
+  });
   app.use(express.json());
 
   app.get("/api/health", (_request, response) => {
@@ -167,7 +193,88 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
       corpusSize: corpus.length,
       recognitionModes: ["openai_hybrid", "local_whisper"],
       aiProviders: ["openai", "deepseek"],
-      transcriptionProvider: process.env.TRANSCRIPTION_PROVIDER || "openai"
+      transcriptionProvider: process.env.TRANSCRIPTION_PROVIDER || "openai",
+      billingConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+      databaseConfigured: Boolean(process.env.DATABASE_URL)
+    });
+  });
+
+  app.post("/api/auth/signup", async (request, response) => {
+    const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
+    const password = typeof request.body?.password === "string" ? request.body.password : "";
+    if (!email.includes("@") || password.length < 8) {
+      response.status(400).json({ error: "Enter a valid email and a password with at least 8 characters." });
+      return;
+    }
+
+    try {
+      const user = await store.createUser(email, hashPassword(password));
+      const token = createSessionToken(user);
+      setSessionCookie(response, token);
+      response.json({ token, user: toPublicUser(user), usage: await usageSummary(store, user) });
+    } catch (error) {
+      response.status(400).json({ error: error instanceof Error ? error.message : "Could not create account." });
+    }
+  });
+
+  app.post("/api/auth/login", async (request, response) => {
+    const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
+    const password = typeof request.body?.password === "string" ? request.body.password : "";
+    const user = await store.findUserByEmail(email);
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      response.status(401).json({ error: "Invalid email or password." });
+      return;
+    }
+
+    const token = createSessionToken(user);
+    setSessionCookie(response, token);
+    response.json({ token, user: toPublicUser(user), usage: await usageSummary(store, user) });
+  });
+
+  app.post("/api/auth/logout", (_request, response) => {
+    clearSessionCookie(response);
+    response.json({ ok: true });
+  });
+
+  app.get("/api/auth/me", async (request, response) => {
+    const user = await currentUser(request);
+    response.json({ user: user ? toPublicUser(user) : null, usage: await usageSummary(store, user, request.query.anonymousKey as string | undefined) });
+  });
+
+  app.post("/api/billing/checkout", async (request, response) => {
+    const user = await currentUser(request);
+    if (!requireUser(user, response)) {
+      return;
+    }
+
+    try {
+      const session = await createCheckoutSession(store, user, request.body?.interval);
+      response.json({ url: session.url });
+    } catch (error) {
+      response.status(500).json({ error: error instanceof Error ? error.message : "Could not start checkout." });
+    }
+  });
+
+  app.get("/api/dashboard", async (request, response) => {
+    const user = await currentUser(request);
+    if (!requireUser(user, response)) {
+      return;
+    }
+
+    const [usage, history, memorization] = await Promise.all([
+      usageSummary(store, user),
+      store.listRecognitionHistory(user.id, 10),
+      store.listMemorizationItems(user.id)
+    ]);
+    response.json({
+      usage,
+      history,
+      memorization,
+      stats: {
+        totalRecognitions: history.length,
+        dueReviews: memorization.filter((item) => item.status === "needs_review" || item.status === "low_confidence").length,
+        weakAyahs: memorization.filter((item) => item.status === "low_confidence").length
+      }
     });
   });
 
@@ -202,6 +309,9 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
         return;
       }
 
+      const user = await currentUser(request);
+      const anonymousKey = typeof request.body?.anonymousKey === "string" ? request.body.anonymousKey : request.ip;
+      const usageBefore = await assertRecognitionAllowed(store, user, anonymousKey);
       const surahNumbers = parseSurahFilter(request.body?.surahNumbers);
       const recognitionMode = parseRecognitionMode(request.body?.recognitionMode);
       const searchableCorpus = filterCorpusBySurah(corpus, surahNumbers);
@@ -256,10 +366,16 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
           }
         }
       };
+      await store.recordUsage({ userId: user?.id, anonymousKey: user ? undefined : anonymousKey, kind: "recognition" });
+      if (user) {
+        await store.saveRecognition(user.id, payload);
+      }
+      const usageAfter = await usageSummary(store, user, anonymousKey);
+      (payload as IdentifyResponse & { usage?: typeof usageBefore }).usage = usageAfter;
       response.json(payload);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to identify recitation.";
-      response.status(500).json({ error: message });
+      response.status((error as Error & { status?: number }).status || 500).json({ error: message, usage: (error as Error & { usage?: unknown }).usage });
     } finally {
       if (transcriptionPath) {
         await fs.unlink(transcriptionPath).catch(() => undefined);
@@ -276,6 +392,9 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
     }
 
     try {
+      const user = await currentUser(request);
+      const anonymousKey = typeof request.body?.anonymousKey === "string" ? request.body.anonymousKey : request.ip;
+      await assertRecognitionAllowed(store, user, anonymousKey);
       const surahNumbers = Array.isArray(request.body?.surahNumbers)
         ? request.body.surahNumbers.filter((item: unknown): item is number => typeof item === "number" && Number.isInteger(item) && item >= 1 && item <= 114)
         : parseSurahFilter(request.body?.surahNumbers);
@@ -287,11 +406,69 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
         lowConfidence: matches.length === 0 || matches[0].confidence < 0.45,
         matches
       };
+      await store.recordUsage({ userId: user?.id, anonymousKey: user ? undefined : anonymousKey, kind: "recognition" });
+      if (user) {
+        await store.saveRecognition(user.id, payload);
+      }
+      (payload as IdentifyResponse & { usage?: unknown }).usage = await usageSummary(store, user, anonymousKey);
       response.json(payload);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to identify transcript.";
-      response.status(500).json({ error: message });
+      response.status((error as Error & { status?: number }).status || 500).json({ error: message, usage: (error as Error & { usage?: unknown }).usage });
     }
+  });
+
+  app.post("/api/memorization", async (request, response) => {
+    const user = await currentUser(request);
+    if (!requireUser(user, response)) {
+      return;
+    }
+
+    const item = await store.addMemorizationItem(user.id, {
+      surahNumber: Number(request.body?.surahNumber),
+      surahName: String(request.body?.surahName || ""),
+      ayahStart: Number(request.body?.ayahStart),
+      ayahEnd: Number(request.body?.ayahEnd),
+      status: (request.body?.status || "needs_review") as MemorizationStatus,
+      lastReviewedAt: null
+    });
+    response.json({ item });
+  });
+
+  app.patch("/api/memorization/:id", async (request, response) => {
+    const user = await currentUser(request);
+    if (!requireUser(user, response)) {
+      return;
+    }
+
+    const status = request.body?.status as MemorizationStatus;
+    if (!["recognized", "needs_review", "low_confidence"].includes(status)) {
+      response.status(400).json({ error: "Invalid memorization status." });
+      return;
+    }
+
+    const item = await store.updateMemorizationItem(user.id, request.params.id, status);
+    if (!item) {
+      response.status(404).json({ error: "Memorization item not found." });
+      return;
+    }
+    response.json({ item });
+  });
+
+  app.post("/api/corrections", async (request, response) => {
+    const user = await currentUser(request);
+    const correction: CorrectionInput = {
+      userId: user?.id,
+      anonymousKey: typeof request.body?.anonymousKey === "string" ? request.body.anonymousKey : request.ip,
+      transcript: typeof request.body?.transcript === "string" ? request.body.transcript : undefined,
+      verdict: request.body?.verdict === "correct" ? "correct" : "wrong",
+      actual: request.body?.actual,
+      expectedSurahNumber: request.body?.expectedSurahNumber ? Number(request.body.expectedSurahNumber) : undefined,
+      expectedAyahStart: request.body?.expectedAyahStart ? Number(request.body.expectedAyahStart) : undefined,
+      expectedAyahEnd: request.body?.expectedAyahEnd ? Number(request.body.expectedAyahEnd) : undefined
+    };
+    await store.saveCorrection(correction);
+    response.json({ ok: true });
   });
 
   return app;

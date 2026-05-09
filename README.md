@@ -53,6 +53,39 @@ EXPO_PUBLIC_API_BASE_URL=
 
 Leaving `EXPO_PUBLIC_API_BASE_URL` empty makes the website call `/api/*` on the same domain.
 
+## SaaS Features
+
+The web app now includes:
+
+- Free account signup/login.
+- Daily free recognition limits and higher Pro limits.
+- Stripe Checkout hooks for monthly and annual Pro subscriptions.
+- Saved recognition history for signed-in users.
+- Memorization Coach with saved ayah ranges and weak-review tracking.
+- Typed Arabic search.
+- User correction feedback for future ranking improvements.
+- Privacy, Terms, and Pricing sections.
+
+Local development can run without a database by using a small ignored JSON store at `server/data/app-store.json`. Production should use Postgres with Prisma:
+
+```bash
+DATABASE_URL=postgresql://...
+npm run db:generate
+npm run db:push
+```
+
+Stripe requires these variables:
+
+```bash
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_MONTHLY_PRICE_ID=
+STRIPE_YEARLY_PRICE_ID=
+APP_URL=https://your-domain.com
+```
+
+If Stripe is not configured, the Pricing page still renders, but checkout returns a setup error.
+
 OpenAI is used for speech-to-text because DeepSeek's public API currently exposes chat/text completions, not audio transcription. DeepSeek remains available for Arabic transcript cleanup/refinement before matching. For local matcher testing without live audio transcription, set:
 
 ```bash

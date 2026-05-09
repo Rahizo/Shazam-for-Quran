@@ -11,3 +11,4 @@ server/uploads/
 server/audio-cache/
 server/model-cache/
 server/data/quran-corpus.json
+server/data/app-store.json

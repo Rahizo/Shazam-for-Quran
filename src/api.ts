@@ -18,6 +18,7 @@ export type IdentifyResponse = {
   recognitionMode?: RecognitionMode;
   lowConfidence: boolean;
   matches: MatchCandidate[];
+  usage?: UsageSummary;
   diagnostics?: {
     audioFile?: {
       bytes: number;
@@ -48,6 +49,64 @@ export type SurahOption = {
 
 export type RecognitionMode = "openai_hybrid" | "local_whisper";
 
+export type PlanId = "free" | "pro_monthly" | "pro_yearly";
+
+export type PublicUser = {
+  id: string;
+  email: string;
+  plan: PlanId;
+  subscriptionStatus?: string | null;
+  createdAt: string;
+};
+
+export type UsageSummary = {
+  plan: PlanId;
+  limit: number;
+  used: number;
+  remaining: number;
+  period: "day" | "month";
+};
+
+export type RecognitionHistoryItem = {
+  id: string;
+  transcript: string;
+  recognitionMode?: RecognitionMode;
+  lowConfidence: boolean;
+  matches: MatchCandidate[];
+  createdAt: string;
+};
+
+export type MemorizationStatus = "recognized" | "needs_review" | "low_confidence";
+
+export type MemorizationItem = {
+  id: string;
+  surahNumber: number;
+  surahName: string;
+  ayahStart: number;
+  ayahEnd: number;
+  status: MemorizationStatus;
+  lastReviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DashboardSummary = {
+  usage: UsageSummary;
+  history: RecognitionHistoryItem[];
+  memorization: MemorizationItem[];
+  stats: {
+    totalRecognitions: number;
+    dueReviews: number;
+    weakAyahs: number;
+  };
+};
+
+export type AuthState = {
+  token?: string;
+  user: PublicUser | null;
+  usage?: UsageSummary;
+};
+
 function defaultApiBaseUrl(): string {
   if (Platform.OS === "web" && typeof window !== "undefined" && window.location.hostname !== "localhost") {
     return "";
@@ -57,6 +116,58 @@ function defaultApiBaseUrl(): string {
 }
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? defaultApiBaseUrl();
+const tokenStorageKey = "quran_recognition_token";
+const anonymousKeyStorageKey = "quran_recognition_anon";
+
+export function getStoredToken(): string | undefined {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return undefined;
+  }
+  return window.localStorage.getItem(tokenStorageKey) || undefined;
+}
+
+export function storeToken(token?: string) {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return;
+  }
+  if (token) {
+    window.localStorage.setItem(tokenStorageKey, token);
+  } else {
+    window.localStorage.removeItem(tokenStorageKey);
+  }
+}
+
+export function getAnonymousKey(): string {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return "native";
+  }
+  const existing = window.localStorage.getItem(anonymousKeyStorageKey);
+  if (existing) {
+    return existing;
+  }
+  const created = `anon_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+  window.localStorage.setItem(anonymousKeyStorageKey, created);
+  return created;
+}
+
+async function apiFetch(path: string, options: RequestInit = {}) {
+  const token = getStoredToken();
+  const headers = new Headers(options.headers);
+  headers.set("Accept", "application/json");
+  if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || "Request failed.");
+  }
+  return payload;
+}
 
 function filenameForBlob(blob: Blob): string {
   if (blob.type.includes("mp4")) {
@@ -93,13 +204,20 @@ export async function identifyRecitation(recording: string | Blob, surahNumbers:
     formData.append("surahNumbers", surahNumbers.join(","));
   }
   formData.append("recognitionMode", recognitionMode);
+  formData.append("anonymousKey", getAnonymousKey());
+
+  const token = getStoredToken();
+  const headers: HeadersInit = {
+    Accept: "application/json"
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   const response = await fetch(`${API_BASE_URL}/api/identify`, {
     method: "POST",
     body: formData,
-    headers: {
-      Accept: "application/json"
-    }
+    headers
   });
 
   const payload = await response.json();
@@ -111,11 +229,80 @@ export async function identifyRecitation(recording: string | Blob, surahNumbers:
 }
 
 export async function fetchSurahs(): Promise<SurahOption[]> {
-  const response = await fetch(`${API_BASE_URL}/api/surahs`);
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error || "Unable to load surahs.");
-  }
+  const payload = await apiFetch("/api/surahs");
 
   return payload.surahs as SurahOption[];
+}
+
+export async function identifyText(transcript: string, surahNumbers: number[] = []): Promise<IdentifyResponse> {
+  return apiFetch("/api/identify-text", {
+    method: "POST",
+    body: JSON.stringify({ transcript, surahNumbers, anonymousKey: getAnonymousKey() })
+  }) as Promise<IdentifyResponse>;
+}
+
+export async function signup(email: string, password: string): Promise<AuthState> {
+  const payload = (await apiFetch("/api/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) })) as AuthState;
+  storeToken(payload.token);
+  return payload;
+}
+
+export async function login(email: string, password: string): Promise<AuthState> {
+  const payload = (await apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) })) as AuthState;
+  storeToken(payload.token);
+  return payload;
+}
+
+export async function logout(): Promise<void> {
+  await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+  storeToken(undefined);
+}
+
+export async function fetchMe(): Promise<AuthState> {
+  return apiFetch(`/api/auth/me?anonymousKey=${encodeURIComponent(getAnonymousKey())}`) as Promise<AuthState>;
+}
+
+export async function fetchDashboard(): Promise<DashboardSummary> {
+  return apiFetch("/api/dashboard") as Promise<DashboardSummary>;
+}
+
+export async function createCheckout(interval: "month" | "year"): Promise<string> {
+  const payload = (await apiFetch("/api/billing/checkout", { method: "POST", body: JSON.stringify({ interval }) })) as { url: string };
+  return payload.url;
+}
+
+export async function saveMemorization(match: MatchCandidate, status: MemorizationStatus = "needs_review"): Promise<MemorizationItem> {
+  const payload = (await apiFetch("/api/memorization", {
+    method: "POST",
+    body: JSON.stringify({
+      surahNumber: match.surahNumber,
+      surahName: match.surahName,
+      ayahStart: match.ayahStart,
+      ayahEnd: match.ayahEnd,
+      status
+    })
+  })) as { item: MemorizationItem };
+  return payload.item;
+}
+
+export async function updateMemorization(id: string, status: MemorizationStatus): Promise<MemorizationItem> {
+  const payload = (await apiFetch(`/api/memorization/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  })) as { item: MemorizationItem };
+  return payload.item;
+}
+
+export async function saveCorrection(input: {
+  transcript?: string;
+  verdict: "correct" | "wrong";
+  actual?: MatchCandidate;
+  expectedSurahNumber?: number;
+  expectedAyahStart?: number;
+  expectedAyahEnd?: number;
+}) {
+  await apiFetch("/api/corrections", {
+    method: "POST",
+    body: JSON.stringify({ ...input, anonymousKey: getAnonymousKey() })
+  });
 }

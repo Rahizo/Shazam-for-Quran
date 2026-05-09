@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String   @id @default(cuid())
+  email                String   @unique
+  passwordHash         String
+  plan                 String   @default("free")
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?
+  subscriptionStatus   String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  usageEvents       UsageEvent[]
+  recognitionHistory RecognitionHistory[]
+  memorizationItems MemorizationItem[]
+  corrections       Correction[]
+}
+
+model UsageEvent {
+  id           String   @id @default(cuid())
+  userId       String?
+  anonymousKey String?
+  kind         String
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([anonymousKey, createdAt])
+}
+
+model RecognitionHistory {
+  id            String   @id @default(cuid())
+  userId        String
+  transcript    String
+  recognitionMode String?
+  lowConfidence Boolean
+  matchesJson   Json
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model MemorizationItem {
+  id             String   @id @default(cuid())
+  userId         String
+  surahNumber    Int
+  surahName      String
+  ayahStart      Int
+  ayahEnd        Int
+  status         String   @default("needs_review")
+  lastReviewedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, lastReviewedAt])
+}
+
+model Correction {
+  id                  String   @id @default(cuid())
+  userId              String?
+  anonymousKey         String?
+  transcript           String?
+  verdict              String
+  actualJson           Json?
+  expectedSurahNumber  Int?
+  expectedAyahStart    Int?
+  expectedAyahEnd      Int?
+  createdAt            DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([anonymousKey, createdAt])
+}
