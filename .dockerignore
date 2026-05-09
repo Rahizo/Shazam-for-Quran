@@ -1,0 +1,13 @@
+node_modules
+.expo
+dist
+dist-check
+web-build
+coverage
+.env
+*.log
+*.err
+server/uploads
+server/audio-cache
+server/model-cache
+server/data/quran-corpus.json

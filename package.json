@@ -1,0 +1,47 @@
+{
+  "name": "shazam-for-quran",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "ios": "expo start --ios",
+    "server": "tsx watch server/src/index.ts",
+    "server:once": "tsx server/src/index.ts",
+    "build:web": "expo export --platform web --output-dir dist",
+    "start:prod": "tsx server/src/index.ts",
+    "predeploy:check": "npm run typecheck && npm test && npm run build:web",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "download:quran": "tsx server/scripts/download-quran.ts"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "expo": "latest",
+    "expo-av": "latest",
+    "expo-file-system": "latest",
+    "express": "latest",
+    "ffmpeg-static": "latest",
+    "multer": "latest",
+    "openai": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-native": "latest",
+    "react-native-web": "latest"
+  },
+  "devDependencies": {
+    "@types/cors": "latest",
+    "@types/express": "latest",
+    "@types/multer": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/supertest": "latest",
+    "supertest": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

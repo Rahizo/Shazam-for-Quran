@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Shazam For Quran",
+    "slug": "shazam-for-quran",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "shazamforquran",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Record short Quran recitations so the app can identify likely surah and ayah matches."
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Record short Quran recitations so the app can identify likely surah and ayah matches."
+        }
+      ]
+    ]
+  }
+}

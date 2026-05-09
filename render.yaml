@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: shazam-for-quran
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: SERVE_WEB_DIST
+        value: true
+      - key: TRANSCRIPTION_PROVIDER
+        value: openai
+      - key: OPENAI_TRANSCRIBE_MODEL
+        value: gpt-4o-transcribe
+      - key: AUDIO_REFERENCE_RECITER
+        value: Alafasy_128kbps
+      - key: LOCAL_WHISPER_MODEL
+        value: medium
+      - key: EXPO_PUBLIC_API_BASE_URL
+        value: ""
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
