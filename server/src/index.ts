@@ -14,8 +14,13 @@ const app = createApp();
 
 if (process.env.SERVE_WEB_DIST === "true" && fs.existsSync(distDir)) {
   app.use(express.static(distDir));
-  app.get("*", (_request, response) => {
-    response.sendFile(path.join(distDir, "index.html"));
+  app.use((request, response, next) => {
+    if (request.method === "GET" && !request.path.startsWith("/api/")) {
+      response.sendFile(path.join(distDir, "index.html"));
+      return;
+    }
+
+    next();
   });
 }
 
