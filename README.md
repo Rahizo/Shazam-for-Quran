@@ -114,6 +114,48 @@ The first Local Whisper request downloads the model into `server/model-cache/`, 
 
 The matcher is intentionally conservative: text matches below the confidence threshold and weak audio-only guesses are hidden instead of being presented as real answers.
 
+## Local Whisper Testing
+
+Local Whisper is enabled on `localhost` and disabled on the hosted Render website because Render Free is not strong enough to run it reliably.
+
+To test it locally:
+
+1. Install Python dependency once:
+   ```bash
+   python -m pip install faster-whisper
+   ```
+2. Make sure the Quran corpus exists:
+   ```bash
+   npm run download:quran
+   ```
+3. Start the backend:
+   ```bash
+   npm run server
+   ```
+4. Start the web app:
+   ```bash
+   npm run web
+   ```
+5. Open the local Expo URL, usually:
+   ```text
+   http://localhost:8081
+   ```
+6. Choose `Local Whisper`, record, and inspect the transcript/results.
+
+You can also test a saved audio file directly from the terminal:
+
+```bash
+npm run test:local-whisper -- path/to/recitation.webm
+```
+
+To narrow matching to likely surahs:
+
+```bash
+npm run test:local-whisper -- path/to/recitation.webm --surahs=1,60
+```
+
+For faster iteration, set `LOCAL_WHISPER_MODEL=small` in `.env`. For better local accuracy, try `medium`, but the first run downloads a larger model and will be slower.
+
 ## Data Attribution
 
 The intended production corpus is Tanzil Quran text, used verbatim with required attribution. Translation/audio display can be backed by Quran.com / Quran.Foundation APIs.

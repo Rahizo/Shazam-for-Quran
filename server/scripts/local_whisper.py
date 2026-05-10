@@ -33,7 +33,7 @@ def main() -> int:
         beam_size=5,
         vad_filter=True,
         condition_on_previous_text=False,
-        initial_prompt="هذه تلاوة من القرآن الكريم باللغة العربية. اكتب نص الآيات المسموعة فقط.",
+        initial_prompt="This is Arabic Quran recitation. Transcribe only the heard Quranic Arabic text.",
     )
     text = " ".join(segment.text.strip() for segment in segments if segment.text.strip()).strip()
     print(json.dumps({"text": text}, ensure_ascii=False))
