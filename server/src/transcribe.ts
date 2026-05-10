@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import OpenAI from "openai";
+import { preprocessForSpeech } from "./audioPreprocess";
 
 export type Transcriber = (filePath: string) => Promise<string>;
 
@@ -24,17 +26,24 @@ function createOpenAITranscriber(): Transcriber {
     }
 
     const openai = new OpenAI({ apiKey });
-    const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(filePath),
-      model,
-      language: "ar",
-      temperature: 0,
-      chunking_strategy: "auto",
-      prompt:
-        "This is Arabic Quran recitation. Return only the heard Quranic Arabic text, without translation, commentary, timestamps, punctuation, or verse numbers."
-    });
+    const speechPath = await preprocessForSpeech(filePath, "openai-speech");
+    const shouldPreprocess = process.env.PREPROCESS_TRANSCRIPTION_AUDIO !== "false";
+    const inputPath = shouldPreprocess ? speechPath : filePath;
+    try {
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(inputPath),
+        model,
+        language: "ar",
+        temperature: 0,
+        chunking_strategy: "auto",
+        prompt:
+          "This is imperfect human Arabic Quran recitation. Return only the heard Quranic Arabic words. If unclear, give the closest Quranic Arabic text, without translation, commentary, timestamps, punctuation, or verse numbers."
+      });
 
-    return transcription.text || "";
+      return transcription.text || "";
+    } finally {
+      await fsp.unlink(speechPath).catch(() => undefined);
+    }
   };
 }
 

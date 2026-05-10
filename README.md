@@ -88,6 +88,8 @@ If Stripe is not configured, the Pricing page still renders, but checkout return
 
 OpenAI is used for speech-to-text because DeepSeek's public API currently exposes chat/text completions, not audio transcription. DeepSeek remains available for Arabic transcript cleanup/refinement before matching. For local matcher testing without live audio transcription, set:
 
+The backend preprocesses uploaded audio before transcription by trimming leading silence, reducing noise, normalizing volume, and converting to 16 kHz mono WAV. Set `PREPROCESS_TRANSCRIPTION_AUDIO=false` only if you need to debug the original upload path.
+
 ```bash
 TRANSCRIPTION_PROVIDER=mock
 MOCK_TRANSCRIPT=قل هو الله احد

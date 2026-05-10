@@ -88,6 +88,7 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState("");
   const [typedQuery, setTypedQuery] = useState("");
   const [savingMatchKey, setSavingMatchKey] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -133,7 +134,7 @@ export default function App() {
     if (result?.lowConfidence) {
       return "Possible matches. Try a clearer or longer recording if these feel off.";
     }
-    return "Choose recognition mode, optionally narrow the search, then record 5-30 seconds.";
+    return "Record 15-30 seconds. If you know the surah, pick it first to make unclear recitation easier to identify.";
   }, [duration, recognitionMode, result?.lowConfidence, status]);
 
   useEffect(() => {
@@ -577,7 +578,7 @@ export default function App() {
         <View style={styles.header}>
           <View>
             <Text style={styles.kicker}>Quran Recognition</Text>
-            <Text style={styles.title}>Find the surah and ayah from recitation</Text>
+            <Text style={styles.title}>Recite, humbly narrow it down, and find the ayah</Text>
           </View>
           <Text style={styles.subtitle}>{guidance}</Text>
         </View>
@@ -659,25 +660,28 @@ export default function App() {
           <>
         <View style={styles.layout}>
           <View style={styles.recorderPanel}>
-            <Text style={styles.panelTitle}>Recorder</Text>
-            <View style={styles.modeSwitch}>
-              <Pressable
-                style={[styles.modeButton, recognitionMode === "openai_hybrid" && styles.selectedModeButton]}
-                onPress={() => setRecognitionMode("openai_hybrid")}
-                disabled={status === "recording" || status === "processing"}
-              >
-                <Text style={[styles.modeButtonText, recognitionMode === "openai_hybrid" && styles.selectedModeButtonText]}>OpenAI Hybrid</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modeButton, recognitionMode === "local_whisper" && styles.selectedModeButton, !localWhisperAvailable && styles.disabledModeButton]}
-                onPress={() => localWhisperAvailable && setRecognitionMode("local_whisper")}
-                disabled={status === "recording" || status === "processing" || !localWhisperAvailable}
-              >
-                <Text style={[styles.modeButtonText, recognitionMode === "local_whisper" && styles.selectedModeButtonText, !localWhisperAvailable && styles.disabledModeButtonText]}>
-                  {localWhisperAvailable ? "Local Whisper" : "Local Whisper (local)"}
-                </Text>
-              </Pressable>
-            </View>
+            <Text style={styles.panelTitle}>1. Recite clearly for a short clip</Text>
+            <Text style={styles.helperTextCenter}>For best results, record 15-30 seconds. A little background noise is okay.</Text>
+            {showAdvanced ? (
+              <View style={styles.modeSwitch}>
+                <Pressable
+                  style={[styles.modeButton, recognitionMode === "openai_hybrid" && styles.selectedModeButton]}
+                  onPress={() => setRecognitionMode("openai_hybrid")}
+                  disabled={status === "recording" || status === "processing"}
+                >
+                  <Text style={[styles.modeButtonText, recognitionMode === "openai_hybrid" && styles.selectedModeButtonText]}>Best accuracy</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.modeButton, recognitionMode === "local_whisper" && styles.selectedModeButton, !localWhisperAvailable && styles.disabledModeButton]}
+                  onPress={() => localWhisperAvailable && setRecognitionMode("local_whisper")}
+                  disabled={status === "recording" || status === "processing" || !localWhisperAvailable}
+                >
+                  <Text style={[styles.modeButtonText, recognitionMode === "local_whisper" && styles.selectedModeButtonText, !localWhisperAvailable && styles.disabledModeButtonText]}>
+                    {localWhisperAvailable ? "Local only" : "Local only (desktop)"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
             <Text style={styles.duration}>{formatDuration(duration)}</Text>
             <Text style={styles.statusText}>{selectedLabel}</Text>
             {status === "recording" && Platform.OS === "web" ? (
@@ -711,14 +715,17 @@ export default function App() {
               <Pressable style={styles.secondaryButton} onPress={() => setSelectedSurahs([])} disabled={status === "processing"}>
                 <Text style={styles.secondaryButtonText}>Search all</Text>
               </Pressable>
+              <Pressable style={styles.secondaryButton} onPress={() => setShowAdvanced((current) => !current)} disabled={status === "processing"}>
+                <Text style={styles.secondaryButtonText}>{showAdvanced ? "Hide options" : "Options"}</Text>
+              </Pressable>
             </View>
           </View>
 
           <View style={styles.filterPanel}>
             <View style={styles.panelHeader}>
               <View>
-                <Text style={styles.panelTitle}>Surah Filter</Text>
-                <Text style={styles.helperText}>Leave empty for Quran-wide text search, or select surahs for focused audio matching.</Text>
+                <Text style={styles.panelTitle}>2. Help us narrow it down</Text>
+                <Text style={styles.helperText}>Optional, but powerful for unclear recitation. Pick one or more likely surahs, or leave empty if you do not know.</Text>
               </View>
               {selectedSurahs.length > 0 ? <Text style={styles.filterCount}>{selectedSurahs.length}</Text> : null}
             </View>
@@ -1026,6 +1033,13 @@ const styles = StyleSheet.create({
     color: "#687773",
     fontSize: 14,
     marginTop: 3
+  },
+  helperTextCenter: {
+    color: "#687773",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 3,
+    textAlign: "center"
   },
   filterCount: {
     minWidth: 32,

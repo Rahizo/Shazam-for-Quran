@@ -96,6 +96,97 @@ function orderedCoverageScore(queryTokens: string[], candidateTokens: string[]):
   return total === 0 ? 0 : previous[candidateTokens.length] / total;
 }
 
+function editDistance(a: string, b: string): number {
+  if (a === b) {
+    return 0;
+  }
+  if (a.length === 0 || b.length === 0) {
+    return Math.max(a.length, b.length);
+  }
+
+  let previous = Array.from({ length: b.length + 1 }, (_value, index) => index);
+  let current = new Array(b.length + 1).fill(0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+    }
+    [previous, current] = [current, previous];
+  }
+
+  return previous[b.length];
+}
+
+function tokenSimilarity(a: string, b: string): number {
+  if (a === b) {
+    return 1;
+  }
+  if (a.length <= 2 || b.length <= 2 || Math.abs(a.length - b.length) > 2 || a[0] !== b[0]) {
+    return 0;
+  }
+
+  const distance = editDistance(a, b);
+  const ratio = 1 - distance / Math.max(a.length, b.length);
+  return ratio >= 0.72 ? ratio : 0;
+}
+
+function fuzzyCoverageScore(queryTokens: string[], candidateTokens: string[]): number {
+  if (queryTokens.length === 0 || candidateTokens.length === 0) {
+    return 0;
+  }
+
+  let score = 0;
+  let total = 0;
+  for (const token of queryTokens.filter((item) => item.length > 1)) {
+    const weight = tokenWeight(token);
+    total += weight;
+    let best = 0;
+    for (const candidate of candidateTokens) {
+      best = Math.max(best, tokenSimilarity(token, candidate));
+      if (best === 1) {
+        break;
+      }
+    }
+    score += best * weight;
+  }
+
+  return total === 0 ? 0 : score / total;
+}
+
+function fuzzyOrderedCoverageScore(queryTokens: string[], candidateTokens: string[]): number {
+  if (queryTokens.length === 0 || candidateTokens.length === 0) {
+    return 0;
+  }
+
+  let candidateStart = 0;
+  let score = 0;
+  let total = 0;
+  for (const token of queryTokens) {
+    const weight = tokenWeight(token);
+    total += weight;
+    let bestIndex = -1;
+    let bestScore = 0;
+    for (let index = candidateStart; index < candidateTokens.length; index += 1) {
+      const similarity = tokenSimilarity(token, candidateTokens[index]);
+      if (similarity > bestScore) {
+        bestScore = similarity;
+        bestIndex = index;
+      }
+      if (similarity === 1) {
+        break;
+      }
+    }
+    if (bestIndex >= 0) {
+      candidateStart = bestIndex + 1;
+      score += bestScore * weight;
+    }
+  }
+
+  return total === 0 ? 0 : score / total;
+}
+
 function sequenceScore(query: string, candidate: string): number {
   if (!query || !candidate) {
     return 0;
@@ -128,10 +219,17 @@ function buildCandidate(verses: IndexedVerse[], transcriptTokens: string[], tran
   const lexical = jaccardScore(transcriptTokens, candidateTokens);
   const queryCoverage = queryCoverageScore(transcriptTokens, candidateTokens);
   const orderedCoverage = orderedCoverageScore(transcriptTokens, candidateTokens);
+  const fuzzyCoverage = fuzzyCoverageScore(transcriptTokens, candidateTokens);
+  const fuzzyOrderedCoverage = fuzzyOrderedCoverageScore(transcriptTokens, candidateTokens);
   const sequential = sequenceScore(transcriptText, candidateText);
   const lengthFit = Math.min(transcriptTokens.length, candidateTokens.length) / Math.max(transcriptTokens.length, candidateTokens.length, 1);
   const confidence =
-    Math.round(Math.min(1, queryCoverage * 0.55 + orderedCoverage * 0.25 + lexical * 0.1 + sequential * 0.07 + lengthFit * 0.03) * 100) / 100;
+    Math.round(
+      Math.min(
+        1,
+        queryCoverage * 0.38 + orderedCoverage * 0.18 + fuzzyCoverage * 0.2 + fuzzyOrderedCoverage * 0.14 + lexical * 0.05 + sequential * 0.03 + lengthFit * 0.02
+      ) * 100
+    ) / 100;
 
   return {
     surahNumber: first.surahNumber,
