@@ -162,11 +162,32 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
-  const payload = await response.json().catch(() => ({}));
+  const payload = await parseJsonResponse(response);
   if (!response.ok) {
     throw new Error(payload.error || "Request failed.");
   }
   return payload;
+}
+
+async function parseJsonResponse(response: Response): Promise<Record<string, any>> {
+  const text = await response.text();
+  if (!text.trim()) {
+    return {
+      error:
+        "The server returned an empty response. On free hosting this usually means the request crashed or timed out; use OpenAI Hybrid instead of Local Whisper."
+    };
+  }
+
+  try {
+    return JSON.parse(text) as Record<string, any>;
+  } catch {
+    return {
+      error:
+        response.ok
+          ? "The server returned a response the app could not read."
+          : "The server returned an error page instead of JSON. Check Render logs for the exact backend error."
+    };
+  }
 }
 
 function filenameForBlob(blob: Blob): string {
@@ -220,12 +241,12 @@ export async function identifyRecitation(recording: string | Blob, surahNumbers:
     headers
   });
 
-  const payload = await response.json();
+  const payload = await parseJsonResponse(response);
   if (!response.ok) {
     throw new Error(payload.error || "Unable to identify this recitation.");
   }
 
-  return payload as IdentifyResponse;
+  return payload as unknown as IdentifyResponse;
 }
 
 export async function fetchSurahs(): Promise<SurahOption[]> {

@@ -36,6 +36,10 @@ type Section = "recognize" | "coach" | "pricing" | "privacy" | "terms";
 
 const popularSurahs = new Set([1, 2, 18, 36, 55, 67, 78, 87, 93, 94, 95, 96, 97, 99, 100, 103, 108, 109, 112, 113, 114]);
 
+function isHostedWeb() {
+  return Platform.OS === "web" && typeof window !== "undefined" && window.location.hostname !== "localhost";
+}
+
 function formatDuration(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -94,6 +98,7 @@ export default function App() {
   const levelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentSoundRef = useRef<Audio.Sound | null>(null);
   const stoppingRef = useRef(false);
+  const localWhisperAvailable = !isHostedWeb();
 
   const filteredSurahs = useMemo(() => {
     const query = surahQuery.trim().toLowerCase();
@@ -108,7 +113,9 @@ export default function App() {
       ? selectedSurahs.length === 0
         ? "OpenAI transcript searches all surahs; audio verifies likely candidates"
         : `OpenAI + audio search ${selectedSurahs.length} selected surah${selectedSurahs.length === 1 ? "" : "s"}`
-      : selectedSurahs.length === 0
+      : !localWhisperAvailable
+        ? "Local Whisper is disabled on free hosted web; use OpenAI Hybrid"
+        : selectedSurahs.length === 0
         ? "Local Whisper searches Quran text without OpenAI"
         : `Local Whisper + audio search ${selectedSurahs.length} selected surah${selectedSurahs.length === 1 ? "" : "s"}`;
 
@@ -119,13 +126,21 @@ export default function App() {
     if (status === "processing") {
       return recognitionMode === "openai_hybrid"
         ? "Transcribing with OpenAI, then comparing text and audio."
-        : "Transcribing locally with Whisper, then comparing against Quran text.";
+        : localWhisperAvailable
+          ? "Transcribing locally with Whisper, then comparing against Quran text."
+          : "Switching to OpenAI Hybrid because Local Whisper is disabled on hosted web.";
     }
     if (result?.lowConfidence) {
       return "Possible matches. Try a clearer or longer recording if these feel off.";
     }
     return "Choose recognition mode, optionally narrow the search, then record 5-30 seconds.";
   }, [duration, recognitionMode, result?.lowConfidence, status]);
+
+  useEffect(() => {
+    if (!localWhisperAvailable && recognitionMode === "local_whisper") {
+      setRecognitionMode("openai_hybrid");
+    }
+  }, [localWhisperAvailable, recognitionMode]);
 
   useEffect(() => {
     fetchMe()
@@ -428,7 +443,7 @@ export default function App() {
           throw new Error("The browser captured almost no audio. Check the microphone input, use a real mic source, or play the recitation from another device near the mic.");
         }
 
-        const identified = await identifyRecitation(recordingBlob, selectedSurahs, recognitionMode);
+        const identified = await identifyRecitation(recordingBlob, selectedSurahs, localWhisperAvailable ? recognitionMode : "openai_hybrid");
         setResult(identified);
         setUsage(identified.usage);
         setStatus("results");
@@ -469,7 +484,7 @@ export default function App() {
         throw new Error("Recording could not be saved.");
       }
 
-      const identified = await identifyRecitation(uri, selectedSurahs, recognitionMode);
+      const identified = await identifyRecitation(uri, selectedSurahs, localWhisperAvailable ? recognitionMode : "openai_hybrid");
       setResult(identified);
       setUsage(identified.usage);
       setStatus("results");
@@ -654,11 +669,13 @@ export default function App() {
                 <Text style={[styles.modeButtonText, recognitionMode === "openai_hybrid" && styles.selectedModeButtonText]}>OpenAI Hybrid</Text>
               </Pressable>
               <Pressable
-                style={[styles.modeButton, recognitionMode === "local_whisper" && styles.selectedModeButton]}
-                onPress={() => setRecognitionMode("local_whisper")}
-                disabled={status === "recording" || status === "processing"}
+                style={[styles.modeButton, recognitionMode === "local_whisper" && styles.selectedModeButton, !localWhisperAvailable && styles.disabledModeButton]}
+                onPress={() => localWhisperAvailable && setRecognitionMode("local_whisper")}
+                disabled={status === "recording" || status === "processing" || !localWhisperAvailable}
               >
-                <Text style={[styles.modeButtonText, recognitionMode === "local_whisper" && styles.selectedModeButtonText]}>Local Whisper</Text>
+                <Text style={[styles.modeButtonText, recognitionMode === "local_whisper" && styles.selectedModeButtonText, !localWhisperAvailable && styles.disabledModeButtonText]}>
+                  {localWhisperAvailable ? "Local Whisper" : "Local Whisper (local)"}
+                </Text>
               </Pressable>
             </View>
             <Text style={styles.duration}>{formatDuration(duration)}</Text>
@@ -1052,6 +1069,9 @@ const styles = StyleSheet.create({
     borderColor: "#0f766e",
     backgroundColor: "#0f766e"
   },
+  disabledModeButton: {
+    opacity: 0.48
+  },
   modeButtonText: {
     color: "#17211f",
     fontSize: 13,
@@ -1059,6 +1079,9 @@ const styles = StyleSheet.create({
   },
   selectedModeButtonText: {
     color: "#fff"
+  },
+  disabledModeButtonText: {
+    color: "#64736f"
   },
   levelWrap: {
     alignSelf: "stretch",
