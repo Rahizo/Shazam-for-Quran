@@ -128,10 +128,11 @@ describe("identify API", () => {
   });
 
   it("marks configured admin emails and gives unlimited usage", async () => {
-    process.env.ADMIN_EMAILS = "owner@example.com";
+    const email = `owner-${Date.now()}@example.com`;
+    process.env.ADMIN_EMAILS = email;
     const app = createApp(async () => "");
     const signup = await request(app).post("/api/auth/signup").send({
-      email: "owner@example.com",
+      email,
       password: "password123"
     });
 

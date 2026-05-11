@@ -2,6 +2,8 @@ import { normalizeArabic, tokenizeArabic } from "./normalizeArabic";
 import { TajweedWordFeedback } from "./saasTypes";
 import { QuranVerse } from "./types";
 
+const nonPronouncedQuranMarks = /[\u06D6-\u06ED\u06DD\u06DE\u06E9]/g;
+
 type AlignmentStep = {
   expected?: string;
   expectedToken?: string;
@@ -39,8 +41,12 @@ function originalArabicWords(text: string) {
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
-    .map((word) => word.replace(/^[^\p{Script=Arabic}]+|[^\p{Script=Arabic}\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]+$/gu, ""))
-    .filter(Boolean);
+    .map((word) =>
+      word
+        .replace(nonPronouncedQuranMarks, "")
+        .replace(/^[^\p{Script=Arabic}]+|[^\p{Script=Arabic}\u0610-\u061A\u064B-\u065F\u0670\u0640]+$/gu, "")
+    )
+    .filter((word) => word.length > 0 && normalizeArabic(word).length > 0);
 }
 
 function editDistance(a: string, b: string) {
@@ -65,6 +71,12 @@ function tokenSimilarity(a = "", b = "") {
     return 0;
   }
   if (a === b) {
+    return 1;
+  }
+  const aliases: Record<string, string[]> = {
+    "\u0627\u0644\u0645": ["\u0627\u0633\u0644\u0627\u0645", "\u0627\u0644\u0641\u0644\u0627\u0645\u0645\u064A\u0645", "\u0627\u0644\u0641\u0644\u0627\u0645\u064A\u0645"]
+  };
+  if (aliases[a]?.includes(b) || aliases[b]?.includes(a)) {
     return 1;
   }
   const relaxedA = a.replace(/\u0627/g, "");
