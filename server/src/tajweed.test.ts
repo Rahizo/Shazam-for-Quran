@@ -33,7 +33,7 @@ describe("tajweed evaluator", () => {
   });
 
   it("ignores standalone Quran pause marks and accepts common STT text for disconnected letters", () => {
-    const result = evaluateTajweedTranscript("اسلام ذلك الكتاب لا ريب فيه هدى للمتقين", [
+    const result = evaluateTajweedTranscript("الف لام ميم ذلك الكتاب لا ريب فيه هدى للمتقين", [
       {
         surahNumber: 2,
         surahName: "Al-Baqarah",
@@ -52,6 +52,11 @@ describe("tajweed evaluator", () => {
     ]);
 
     expect(result.score).toBe(100);
+    expect(result.words[0]).toMatchObject({
+      expected: "\u0627\u0644\u0653\u0645\u0653",
+      heard: "\u0627\u0644\u0641\u0644\u0627\u0645\u0645\u064A\u0645",
+      status: "correct"
+    });
     expect(result.words.map((word) => word.expected)).toEqual([
       "\u0627\u0644\u0653\u0645\u0653",
       "\u0630\u064E\u0670\u0644\u0650\u0643\u064E",
@@ -64,5 +69,33 @@ describe("tajweed evaluator", () => {
     ]);
     expect(result.words.filter((word) => word.expected === "\u06DB")).toHaveLength(0);
     expect(result.words.filter((word) => word.status !== "correct")).toHaveLength(0);
+  });
+
+  it("groups other disconnected-letter sequences instead of flagging their pronounced letter names as extra", () => {
+    const result = evaluateTajweedTranscript("حا ميم عين سين قاف", [
+      {
+        surahNumber: 42,
+        surahName: "Ash-Shuraa",
+        ayahNumber: 1,
+        arabicText: "\u062D\u0645\u0653",
+        englishTranslation: ""
+      },
+      {
+        surahNumber: 42,
+        surahName: "Ash-Shuraa",
+        ayahNumber: 2,
+        arabicText: "\u0639\u0653\u0633\u0653\u0642\u0653",
+        englishTranslation: ""
+      }
+    ]);
+
+    expect(result.score).toBe(100);
+    expect(result.words).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ expected: "\u062D\u0645\u0653", heard: "\u062D\u0627\u0645\u064A\u0645", status: "correct" }),
+        expect.objectContaining({ expected: "\u0639\u0653\u0633\u0653\u0642\u0653", heard: "\u0639\u064A\u0646\u0633\u064A\u0646\u0642\u0627\u0641", status: "correct" })
+      ])
+    );
+    expect(result.words.filter((word) => word.status === "extra")).toHaveLength(0);
   });
 });

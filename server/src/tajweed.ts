@@ -3,6 +3,46 @@ import { TajweedWordFeedback } from "./saasTypes";
 import { QuranVerse } from "./types";
 
 const nonPronouncedQuranMarks = /[\u06D6-\u06ED\u06DD\u06DE\u06E9]/g;
+const muqattaatLetters: Record<string, string> = {
+  "\u0627\u0644\u0641": "\u0627",
+  "\u0644\u0627\u0645": "\u0644",
+  "\u0645\u064A\u0645": "\u0645",
+  "\u0635\u0627\u062F": "\u0635",
+  "\u0631\u0627": "\u0631",
+  "\u0643\u0627\u0641": "\u0643",
+  "\u0647\u0627": "\u0647",
+  "\u064A\u0627": "\u064A",
+  "\u0639\u064A\u0646": "\u0639",
+  "\u0637\u0627": "\u0637",
+  "\u0633\u064A\u0646": "\u0633",
+  "\u062D\u0627": "\u062D",
+  "\u0642\u0627\u0641": "\u0642",
+  "\u0646\u0648\u0646": "\u0646"
+};
+const knownMuqattaat = new Set([
+  "\u0627\u0644\u0645",
+  "\u0627\u0644\u0645\u0635",
+  "\u0627\u0644\u0631",
+  "\u0627\u0644\u0645\u0631",
+  "\u0643\u0647\u064A\u0639\u0635",
+  "\u0637\u0647",
+  "\u0637\u0633\u0645",
+  "\u0637\u0633",
+  "\u064A\u0633",
+  "\u0635",
+  "\u062D\u0645",
+  "\u0639\u0633\u0642",
+  "\u0642",
+  "\u0646"
+]);
+const muqattaatPronunciations = new Map(
+  [...knownMuqattaat].map((letters) => {
+    const spoken = [...letters]
+      .map((letter) => Object.entries(muqattaatLetters).find(([, value]) => value === letter)?.[0] || letter)
+      .join("");
+    return [letters, spoken];
+  })
+);
 
 type AlignmentStep = {
   expected?: string;
@@ -74,8 +114,13 @@ function tokenSimilarity(a = "", b = "") {
     return 1;
   }
   const aliases: Record<string, string[]> = {
-    "\u0627\u0644\u0645": ["\u0627\u0633\u0644\u0627\u0645", "\u0627\u0644\u0641\u0644\u0627\u0645\u0645\u064A\u0645", "\u0627\u0644\u0641\u0644\u0627\u0645\u064A\u0645"]
+    "\u0627\u0644\u0645": ["\u0627\u0633\u0644\u0627\u0645", "\u0627\u0644\u0641\u0644\u0627\u0645\u0645\u064A\u0645", "\u0627\u0644\u0641\u0644\u0627\u0645\u064A\u0645", "\u0627\u0644\u0641\u0627\u0644\u0645"]
   };
+  const pronouncedA = muqattaatPronunciations.get(a);
+  const pronouncedB = muqattaatPronunciations.get(b);
+  if (pronouncedA === b || pronouncedB === a) {
+    return 1;
+  }
   if (aliases[a]?.includes(b) || aliases[b]?.includes(a)) {
     return 1;
   }
@@ -88,9 +133,34 @@ function tokenSimilarity(a = "", b = "") {
   return Math.max(0, 1 - distance / Math.max(a.length, b.length));
 }
 
+function combineHeardMuqattaat(words: string[]) {
+  const combined: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    let matched = false;
+    for (let length = 5; length >= 1; length -= 1) {
+      const slice = words.slice(index, index + length);
+      if (slice.length !== length || slice.some((word) => !muqattaatLetters[word])) {
+        continue;
+      }
+      const letters = slice.map((word) => muqattaatLetters[word]).join("");
+      if (knownMuqattaat.has(letters)) {
+        combined.push(slice.join(""));
+        index += length - 1;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      combined.push(words[index]);
+    }
+  }
+  return combined;
+}
+
 function alignWords(expectedWords: string[], heardWords: string[]): AlignmentStep[] {
   const expectedTokens = expectedWords.map(normalizeArabic);
-  const heardTokens = heardWords.map(normalizeArabic);
+  const combinedHeardWords = combineHeardMuqattaat(heardWords);
+  const heardTokens = combinedHeardWords.map(normalizeArabic);
   const rows = expectedTokens.length + 1;
   const cols = heardTokens.length + 1;
   const costs = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
@@ -129,7 +199,7 @@ function alignWords(expectedWords: string[], heardWords: string[]): AlignmentSte
       steps.push({
         expected: expectedWords[i - 1],
         expectedToken: expectedTokens[i - 1],
-        heard: heardWords[j - 1],
+        heard: combinedHeardWords[j - 1],
         heardToken: heardTokens[j - 1],
         status: similarity >= 0.92 ? "correct" : similarity >= 0.68 ? "close" : "changed",
         similarity
@@ -138,7 +208,7 @@ function alignWords(expectedWords: string[], heardWords: string[]): AlignmentSte
       j -= 1;
     } else if (move === "insert" || i === 0) {
       steps.push({
-        heard: heardWords[j - 1],
+        heard: combinedHeardWords[j - 1],
         heardToken: heardTokens[j - 1],
         status: "extra",
         similarity: 0
