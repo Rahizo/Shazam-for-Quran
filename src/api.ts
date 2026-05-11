@@ -90,14 +90,60 @@ export type MemorizationItem = {
   updatedAt: string;
 };
 
+export type TajweedWordStatus = "correct" | "close" | "changed" | "missing" | "extra";
+
+export type TajweedWordFeedback = {
+  position: number;
+  expected?: string;
+  heard?: string;
+  status: TajweedWordStatus;
+  note: string;
+};
+
+export type TajweedAttempt = {
+  id: string;
+  userId?: string;
+  surahNumber: number;
+  surahName: string;
+  ayahStart: number;
+  ayahEnd: number;
+  score: number;
+  transcript: string;
+  feedback: TajweedWordFeedback[];
+  advice: string[];
+  createdAt: string;
+};
+
+export type TajweedEvaluationResponse = {
+  transcript: string;
+  recognitionMode?: RecognitionMode;
+  surahNumber: number;
+  surahName: string;
+  ayahStart: number;
+  ayahEnd: number;
+  score: number;
+  summary: string;
+  words: TajweedWordFeedback[];
+  advice: string[];
+  infographicSvg: string;
+  attempt?: TajweedAttempt;
+  history?: TajweedAttempt[];
+  usage?: UsageSummary;
+  diagnostics?: IdentifyResponse["diagnostics"];
+};
+
 export type DashboardSummary = {
   usage: UsageSummary;
   history: RecognitionHistoryItem[];
   memorization: MemorizationItem[];
+  tajweedAttempts: TajweedAttempt[];
   stats: {
     totalRecognitions: number;
     dueReviews: number;
     weakAyahs: number;
+    tajweedPracticeCount: number;
+    bestTajweedScore: number;
+    latestTajweedScore: number;
   };
 };
 
@@ -247,6 +293,50 @@ export async function identifyRecitation(recording: string | Blob, surahNumbers:
   }
 
   return payload as unknown as IdentifyResponse;
+}
+
+export async function evaluateTajweed(
+  recording: string | Blob,
+  target: { surahNumber: number; ayahStart: number; ayahEnd: number },
+  recognitionMode: RecognitionMode = "openai_hybrid"
+): Promise<TajweedEvaluationResponse> {
+  const formData = new FormData();
+  if (Platform.OS === "web" && recording instanceof Blob) {
+    formData.append("audio", recording, filenameForBlob(recording));
+  } else if (Platform.OS === "web") {
+    const blob = await fetch(recording as string).then((response) => response.blob());
+    formData.append("audio", blob, filenameForBlob(blob));
+  } else {
+    formData.append("audio", {
+      uri: recording as string,
+      name: "tajweed-practice.m4a",
+      type: "audio/m4a"
+    } as unknown as Blob);
+  }
+  formData.append("surahNumber", String(target.surahNumber));
+  formData.append("ayahStart", String(target.ayahStart));
+  formData.append("ayahEnd", String(target.ayahEnd));
+  formData.append("recognitionMode", recognitionMode);
+  formData.append("anonymousKey", getAnonymousKey());
+
+  const token = getStoredToken();
+  const headers: HeadersInit = {
+    Accept: "application/json"
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/tajweed/evaluate`, {
+    method: "POST",
+    body: formData,
+    headers
+  });
+  const payload = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(payload.error || "Unable to evaluate this practice recording.");
+  }
+  return payload as unknown as TajweedEvaluationResponse;
 }
 
 export async function fetchSurahs(): Promise<SurahOption[]> {

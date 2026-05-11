@@ -21,6 +21,7 @@ model User {
   usageEvents       UsageEvent[]
   recognitionHistory RecognitionHistory[]
   memorizationItems MemorizationItem[]
+  tajweedAttempts   TajweedAttempt[]
   corrections       Correction[]
 }
 
@@ -67,6 +68,25 @@ model MemorizationItem {
 
   @@index([userId, status])
   @@index([userId, lastReviewedAt])
+}
+
+model TajweedAttempt {
+  id           String   @id @default(cuid())
+  userId       String
+  surahNumber  Int
+  surahName    String
+  ayahStart    Int
+  ayahEnd      Int
+  score        Int
+  transcript   String
+  feedbackJson Json
+  adviceJson   Json
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, score])
 }
 
 model Correction {

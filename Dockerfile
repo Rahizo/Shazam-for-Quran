@@ -27,4 +27,4 @@ ENV NODE_ENV=production
 
 EXPOSE 8787
 
-CMD ["npm", "run", "start:prod"]
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npm run db:push; fi; npm run start:prod"]

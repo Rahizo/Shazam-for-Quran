@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import { CorrectionInput, MemorizationItem, MemorizationStatus, PlanId, RecognitionHistoryItem, StoredUser } from "./saasTypes";
+import { CorrectionInput, MemorizationItem, MemorizationStatus, PlanId, RecognitionHistoryItem, StoredUser, TajweedAttempt } from "./saasTypes";
 import { IdentifyResponse, MatchCandidate } from "./types";
 
 type StoreData = {
@@ -10,6 +10,7 @@ type StoreData = {
   usageEvents: Array<{ id: string; userId?: string; anonymousKey?: string; kind: string; createdAt: string }>;
   history: RecognitionHistoryItem[];
   memorization: MemorizationItem[];
+  tajweedAttempts: TajweedAttempt[];
   corrections: Array<CorrectionInput & { id: string; createdAt: string }>;
 };
 
@@ -26,6 +27,8 @@ export type AppStore = {
   addMemorizationItem(userId: string, input: Omit<MemorizationItem, "id" | "createdAt" | "updatedAt">): Promise<MemorizationItem>;
   listMemorizationItems(userId: string): Promise<MemorizationItem[]>;
   updateMemorizationItem(userId: string, id: string, status: MemorizationStatus): Promise<MemorizationItem | null>;
+  saveTajweedAttempt(userId: string, input: Omit<TajweedAttempt, "id" | "userId" | "createdAt">): Promise<TajweedAttempt>;
+  listTajweedAttempts(userId: string, limit?: number): Promise<TajweedAttempt[]>;
   saveCorrection(input: CorrectionInput): Promise<void>;
 };
 
@@ -48,7 +51,7 @@ class JsonStore implements AppStore {
     try {
       return JSON.parse(await fs.readFile(this.filePath, "utf8")) as StoreData;
     } catch {
-      return { users: [], usageEvents: [], history: [], memorization: [], corrections: [] };
+      return { users: [], usageEvents: [], history: [], memorization: [], tajweedAttempts: [], corrections: [] };
     }
   }
 
@@ -170,6 +173,24 @@ class JsonStore implements AppStore {
     const data = await this.read();
     data.corrections.push({ ...input, id: id("correction"), createdAt: nowIso() });
     await this.write(data);
+  }
+
+  async saveTajweedAttempt(userId: string, input: Omit<TajweedAttempt, "id" | "userId" | "createdAt">) {
+    const data = await this.read();
+    data.tajweedAttempts ||= [];
+    const item: TajweedAttempt = { ...input, id: id("tajweed"), userId, createdAt: nowIso() };
+    data.tajweedAttempts.push({ ...item, id: `${userId}:${item.id}` });
+    await this.write(data);
+    return item;
+  }
+
+  async listTajweedAttempts(userId: string, limit = 10) {
+    const data = await this.read();
+    return (data.tajweedAttempts || [])
+      .filter((item) => item.id.startsWith(`${userId}:`))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+      .map((item) => ({ ...item, id: item.id.split(":").slice(1).join(":"), userId }));
   }
 }
 
@@ -312,13 +333,59 @@ class PrismaStore implements AppStore {
       }
     });
   }
+
+  async saveTajweedAttempt(userId: string, input: Omit<TajweedAttempt, "id" | "userId" | "createdAt">) {
+    const item = await this.prisma.tajweedAttempt.create({
+      data: {
+        userId,
+        surahNumber: input.surahNumber,
+        surahName: input.surahName,
+        ayahStart: input.ayahStart,
+        ayahEnd: input.ayahEnd,
+        score: input.score,
+        transcript: input.transcript,
+        feedbackJson: input.feedback,
+        adviceJson: input.advice
+      }
+    });
+    return {
+      id: item.id,
+      userId: item.userId,
+      surahNumber: item.surahNumber,
+      surahName: item.surahName,
+      ayahStart: item.ayahStart,
+      ayahEnd: item.ayahEnd,
+      score: item.score,
+      transcript: item.transcript,
+      feedback: item.feedbackJson as TajweedAttempt["feedback"],
+      advice: item.adviceJson as string[],
+      createdAt: item.createdAt.toISOString()
+    };
+  }
+
+  async listTajweedAttempts(userId: string, limit = 10) {
+    const items = await this.prisma.tajweedAttempt.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: limit });
+    return items.map((item) => ({
+      id: item.id,
+      userId: item.userId,
+      surahNumber: item.surahNumber,
+      surahName: item.surahName,
+      ayahStart: item.ayahStart,
+      ayahEnd: item.ayahEnd,
+      score: item.score,
+      transcript: item.transcript,
+      feedback: item.feedbackJson as TajweedAttempt["feedback"],
+      advice: item.adviceJson as string[],
+      createdAt: item.createdAt.toISOString()
+    }));
+  }
 }
 
 let store: AppStore | undefined;
 
 export function getStore(): AppStore {
   if (!store) {
-    store = process.env.DATABASE_URL ? new PrismaStore(new PrismaClient()) : new JsonStore();
+    store = process.env.DATABASE_URL && process.env.NODE_ENV !== "test" ? new PrismaStore(new PrismaClient()) : new JsonStore();
   }
   return store;
 }

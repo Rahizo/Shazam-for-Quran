@@ -47,14 +47,42 @@ export type MemorizationItem = {
   updatedAt: string;
 };
 
+export type TajweedWordStatus = "correct" | "close" | "changed" | "missing" | "extra";
+
+export type TajweedWordFeedback = {
+  position: number;
+  expected?: string;
+  heard?: string;
+  status: TajweedWordStatus;
+  note: string;
+};
+
+export type TajweedAttempt = {
+  id: string;
+  userId?: string;
+  surahNumber: number;
+  surahName: string;
+  ayahStart: number;
+  ayahEnd: number;
+  score: number;
+  transcript: string;
+  feedback: TajweedWordFeedback[];
+  advice: string[];
+  createdAt: string;
+};
+
 export type DashboardSummary = {
   usage: UsageSummary;
   history: RecognitionHistoryItem[];
   memorization: MemorizationItem[];
+  tajweedAttempts: TajweedAttempt[];
   stats: {
     totalRecognitions: number;
     dueReviews: number;
     weakAyahs: number;
+    tajweedPracticeCount: number;
+    bestTajweedScore: number;
+    latestTajweedScore: number;
   };
 };
 

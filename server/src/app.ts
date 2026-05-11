@@ -12,6 +12,7 @@ import { tokenizeArabic } from "./normalizeArabic";
 import { findVerse, listSurahs, loadQuranCorpus } from "./quranData";
 import { CorrectionInput, MemorizationStatus, StoredUser } from "./saasTypes";
 import { getStore } from "./store";
+import { evaluateTajweedTranscript } from "./tajweed";
 import { createConfiguredTranscriber, refineArabicTranscriptWithDeepSeek, Transcriber } from "./transcribe";
 import { IdentifyResponse, MatchCandidate } from "./types";
 import { assertRecognitionAllowed, usageSummary } from "./usage";
@@ -124,6 +125,32 @@ function filterCorpusBySurah(corpus: ReturnType<typeof loadQuranCorpus>, surahNu
 
   const allowed = new Set(surahNumbers);
   return corpus.filter((verse) => allowed.has(verse.surahNumber));
+}
+
+function parseRequiredInt(value: unknown, field: string) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw Object.assign(new Error(`${field} must be a whole number.`), { status: 400 });
+  }
+  return parsed;
+}
+
+function targetVerses(corpus: ReturnType<typeof loadQuranCorpus>, surahNumber: number, ayahStart: number, ayahEnd: number) {
+  if (surahNumber < 1 || surahNumber > 114) {
+    throw Object.assign(new Error("Select a valid surah."), { status: 400 });
+  }
+  if (ayahStart < 1 || ayahEnd < ayahStart) {
+    throw Object.assign(new Error("Select a valid ayah range."), { status: 400 });
+  }
+  if (ayahEnd - ayahStart > 9) {
+    throw Object.assign(new Error("Tajweed practice currently supports up to 10 ayahs at a time."), { status: 400 });
+  }
+
+  const verses = corpus.filter((verse) => verse.surahNumber === surahNumber && verse.ayahNumber >= ayahStart && verse.ayahNumber <= ayahEnd);
+  if (verses.length !== ayahEnd - ayahStart + 1) {
+    throw Object.assign(new Error("That surah/ayah range was not found."), { status: 400 });
+  }
+  return verses;
 }
 
 function matchKey(match: MatchCandidate) {
@@ -261,19 +288,24 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
       return;
     }
 
-    const [usage, history, memorization] = await Promise.all([
+    const [usage, history, memorization, tajweedAttempts] = await Promise.all([
       usageSummary(store, user),
       store.listRecognitionHistory(user.id, 10),
-      store.listMemorizationItems(user.id)
+      store.listMemorizationItems(user.id),
+      store.listTajweedAttempts(user.id, 10)
     ]);
     response.json({
       usage,
       history,
       memorization,
+      tajweedAttempts,
       stats: {
         totalRecognitions: history.length,
         dueReviews: memorization.filter((item) => item.status === "needs_review" || item.status === "low_confidence").length,
-        weakAyahs: memorization.filter((item) => item.status === "low_confidence").length
+        weakAyahs: memorization.filter((item) => item.status === "low_confidence").length,
+        tajweedPracticeCount: tajweedAttempts.length,
+        bestTajweedScore: tajweedAttempts.reduce((best, attempt) => Math.max(best, attempt.score), 0),
+        latestTajweedScore: tajweedAttempts[0]?.score || 0
       }
     });
   });
@@ -326,12 +358,15 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
       const transcriptTokens = tokenizeArabic(transcript);
       const textMatches = transcriptTokens.length >= 4 ? findMatches(transcript, searchableCorpus, 12) : [];
       const audioMatcherDiagnostics: AudioMatchDiagnostics = { candidateCount: 0, queryFrames: 0, successfulCandidates: 0, failedCandidates: 0 };
-      const rawAudioMatches = await findAudioMatches(transcriptionPath, corpus, surahNumbers, textMatches, audioMatcherDiagnostics, {
-        broadSearch: recognitionMode === "local_whisper" && textMatches.length === 0
-      }).catch((error) => {
-        audioMatcherError = error instanceof Error ? error.message : "Audio matching failed.";
-        return [];
-      });
+      const rawAudioMatches =
+        process.env.NODE_ENV === "test"
+          ? []
+          : await findAudioMatches(transcriptionPath, corpus, surahNumbers, textMatches, audioMatcherDiagnostics, {
+              broadSearch: recognitionMode === "local_whisper" && textMatches.length === 0
+            }).catch((error) => {
+              audioMatcherError = error instanceof Error ? error.message : "Audio matching failed.";
+              return [];
+            });
       const audioMatches = rawAudioMatches.filter((match) => {
         const hasTextMatchForRange = textMatches.some((textMatch) => matchKey(textMatch) === matchKey(match));
         return hasTextMatchForRange || match.confidence >= (textMatches.length > 0 ? 0.42 : 0.55);
@@ -415,6 +450,83 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to identify transcript.";
       response.status((error as Error & { status?: number }).status || 500).json({ error: message, usage: (error as Error & { usage?: unknown }).usage });
+    }
+  });
+
+  app.post("/api/tajweed/evaluate", rateLimitIdentify, upload.single("audio"), async (request, response) => {
+    const file = request.file;
+    let transcriptionPath = file?.path;
+    if (!file) {
+      response.status(400).json({ error: "An audio file is required in the 'audio' field." });
+      return;
+    }
+
+    try {
+      if (file.size <= 0) {
+        response.status(400).json({ error: "Audio file is empty." });
+        return;
+      }
+
+      const user = await currentUser(request);
+      const anonymousKey = typeof request.body?.anonymousKey === "string" ? request.body.anonymousKey : request.ip;
+      await assertRecognitionAllowed(store, user, anonymousKey);
+      const surahNumber = parseRequiredInt(request.body?.surahNumber, "Surah");
+      const ayahStart = parseRequiredInt(request.body?.ayahStart, "Starting ayah");
+      const ayahEnd = parseRequiredInt(request.body?.ayahEnd, "Ending ayah");
+      const recognitionMode = parseRecognitionMode(request.body?.recognitionMode);
+      const verses = targetVerses(corpus, surahNumber, ayahStart, ayahEnd);
+      transcriptionPath = await ensureTranscriptionFilename(file);
+      const storedExtension = path.extname(transcriptionPath);
+      let transcriptionError: string | undefined;
+      const transcript = await (recognitionMode === "openai_hybrid" ? transcriber(transcriptionPath) : localTranscriber(transcriptionPath)).catch((error) => {
+        transcriptionError = error instanceof Error ? error.message : "Transcription failed.";
+        return "";
+      });
+      const transcriptTokens = tokenizeArabic(transcript);
+      const evaluation = evaluateTajweedTranscript(transcript, verses);
+      const attempt = user
+        ? await store.saveTajweedAttempt(user.id, {
+            surahNumber: evaluation.surahNumber,
+            surahName: evaluation.surahName,
+            ayahStart: evaluation.ayahStart,
+            ayahEnd: evaluation.ayahEnd,
+            score: evaluation.score,
+            transcript: evaluation.transcript,
+            feedback: evaluation.words,
+            advice: evaluation.advice
+          })
+        : undefined;
+
+      await store.recordUsage({ userId: user?.id, anonymousKey: user ? undefined : anonymousKey, kind: "recognition" });
+      const history = user ? await store.listTajweedAttempts(user.id, 8) : [];
+      response.json({
+        ...evaluation,
+        recognitionMode,
+        attempt,
+        history,
+        usage: await usageSummary(store, user, anonymousKey),
+        diagnostics: {
+          audioFile: {
+            bytes: file.size,
+            mimetype: file.mimetype,
+            originalname: file.originalname,
+            storedExtension
+          },
+          transcription: {
+            attempted: true,
+            tokenCount: transcriptTokens.length,
+            error: transcriptionError
+          }
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to evaluate tajweed practice.";
+      response.status((error as Error & { status?: number }).status || 500).json({ error: message, usage: (error as Error & { usage?: unknown }).usage });
+    } finally {
+      if (transcriptionPath) {
+        await fs.unlink(transcriptionPath).catch(() => undefined);
+      }
+      await fs.unlink(file.path).catch(() => undefined);
     }
   });
 

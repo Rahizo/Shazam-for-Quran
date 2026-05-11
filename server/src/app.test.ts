@@ -50,6 +50,31 @@ describe("identify API", () => {
     expect(response.body.diagnostics.transcription.tokenCount).toBe(0);
   });
 
+  it("evaluates a targeted tajweed practice recording", async () => {
+    const tmpFile = path.join(os.tmpdir(), `tajweed-${Date.now()}.webm`);
+    fs.writeFileSync(tmpFile, "fake audio");
+
+    const app = createApp(async () => "\u0642\u0644 \u0647\u0648 \u0627\u0644\u0644\u0647 \u0627\u062d\u062f");
+    const response = await request(app)
+      .post("/api/tajweed/evaluate")
+      .field("surahNumber", "112")
+      .field("ayahStart", "1")
+      .field("ayahEnd", "1")
+      .attach("audio", tmpFile, {
+        filename: "tajweed.webm",
+        contentType: "audio/webm"
+      });
+
+    fs.unlinkSync(tmpFile);
+
+    expect(response.status).toBe(200);
+    expect(response.body.surahNumber).toBe(112);
+    expect(response.body.ayahStart).toBe(1);
+    expect(response.body.score).toBeGreaterThanOrEqual(80);
+    expect(response.body.infographicSvg).toContain("<svg");
+    expect(response.body.words.length).toBeGreaterThan(0);
+  });
+
   it("identifies from a typed transcript", async () => {
     const app = createApp(async () => "");
     const response = await request(app).post("/api/identify-text").send({
