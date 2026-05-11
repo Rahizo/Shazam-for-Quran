@@ -51,7 +51,11 @@ type AlignmentStep = {
   heardToken?: string;
   status: TajweedWordFeedback["status"];
   similarity: number;
+  start?: number;
+  end?: number;
 };
+
+export type TajweedTimedWord = { word: string; start: number; end: number };
 
 export type TajweedEvaluation = {
   transcript: string;
@@ -167,6 +171,24 @@ function summarizeRules(words: TajweedWordFeedback[]) {
     .map(([rule, count]) => ({ rule, count }));
 }
 
+function timingHint(step: AlignmentStep, rules: TajweedRule[]) {
+  if (step.start === undefined || step.end === undefined || step.status === "missing" || step.status === "extra") {
+    return undefined;
+  }
+  const duration = Math.max(0, step.end - step.start);
+  const ruleNames = new Set(rules.map((rule) => rule.name));
+  if (ruleNames.has("Madd") && duration > 0 && duration < 0.45) {
+    return `Heard in ${duration.toFixed(2)}s. If this is a madd position, do not rush the long vowel.`;
+  }
+  if (ruleNames.has("Ghunnah") && duration > 0 && duration < 0.55) {
+    return `Heard in ${duration.toFixed(2)}s. Leave enough time for the nasal ghunnah.`;
+  }
+  if ((ruleNames.has("Qalqalah") || ruleNames.has("Hamzah clarity")) && duration > 1.8) {
+    return `Heard in ${duration.toFixed(2)}s. Keep the consonant crisp without stretching it into an added vowel.`;
+  }
+  return duration > 0 ? `Audio timing: ${duration.toFixed(2)}s.` : undefined;
+}
+
 function editDistance(a: string, b: string) {
   const matrix = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
   for (let i = 0; i <= a.length; i += 1) {
@@ -211,8 +233,9 @@ function tokenSimilarity(a = "", b = "") {
   return Math.max(0, 1 - distance / Math.max(a.length, b.length));
 }
 
-function combineHeardMuqattaat(words: string[]) {
-  const combined: string[] = [];
+function combineHeardMuqattaat(items: TajweedTimedWord[]) {
+  const words = items.map((item) => item.word);
+  const combined: TajweedTimedWord[] = [];
   for (let index = 0; index < words.length; index += 1) {
     let matched = false;
     for (let length = 5; length >= 1; length -= 1) {
@@ -222,23 +245,23 @@ function combineHeardMuqattaat(words: string[]) {
       }
       const letters = slice.map((word) => muqattaatLetters[word]).join("");
       if (knownMuqattaat.has(letters)) {
-        combined.push(slice.join(""));
+        combined.push({ word: slice.join(""), start: items[index].start, end: items[index + length - 1].end });
         index += length - 1;
         matched = true;
         break;
       }
     }
     if (!matched) {
-      combined.push(words[index]);
+      combined.push(items[index]);
     }
   }
   return combined;
 }
 
-function alignWords(expectedWords: string[], heardWords: string[]): AlignmentStep[] {
+function alignWords(expectedWords: string[], heardItems: TajweedTimedWord[]): AlignmentStep[] {
   const expectedTokens = expectedWords.map(normalizeArabic);
-  const combinedHeardWords = combineHeardMuqattaat(heardWords);
-  const heardTokens = combinedHeardWords.map(normalizeArabic);
+  const combinedHeardItems = combineHeardMuqattaat(heardItems);
+  const heardTokens = combinedHeardItems.map((item) => normalizeArabic(item.word));
   const rows = expectedTokens.length + 1;
   const cols = heardTokens.length + 1;
   const costs = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
@@ -277,19 +300,23 @@ function alignWords(expectedWords: string[], heardWords: string[]): AlignmentSte
       steps.push({
         expected: expectedWords[i - 1],
         expectedToken: expectedTokens[i - 1],
-        heard: combinedHeardWords[j - 1],
+        heard: combinedHeardItems[j - 1].word,
         heardToken: heardTokens[j - 1],
         status: similarity >= 0.92 ? "correct" : similarity >= 0.68 ? "close" : "changed",
-        similarity
+        similarity,
+        start: combinedHeardItems[j - 1].start,
+        end: combinedHeardItems[j - 1].end
       });
       i -= 1;
       j -= 1;
     } else if (move === "insert" || i === 0) {
       steps.push({
-        heard: combinedHeardWords[j - 1],
+        heard: combinedHeardItems[j - 1].word,
         heardToken: heardTokens[j - 1],
         status: "extra",
-        similarity: 0
+        similarity: 0,
+        start: combinedHeardItems[j - 1].start,
+        end: combinedHeardItems[j - 1].end
       });
       j -= 1;
     } else {
@@ -479,15 +506,18 @@ function buildInfographicSvg(input: {
 </svg>`;
 }
 
-export function evaluateTajweedTranscript(transcript: string, verses: QuranVerse[]): TajweedEvaluation {
+export function evaluateTajweedTranscript(transcript: string, verses: QuranVerse[], timedWords?: TajweedTimedWord[]): TajweedEvaluation {
   if (verses.length === 0) {
     throw new Error("Target ayah range was not found.");
   }
 
   const expectedText = verses.map((verse) => verse.arabicText).join(" ");
   const expectedWords = originalArabicWords(expectedText);
-  const heardWords = tokenizeArabic(transcript);
-  const alignment = alignWords(expectedWords, heardWords);
+  const heardWords = timedWords?.length ? timedWords.map((item) => item.word) : tokenizeArabic(transcript);
+  const heardItems = timedWords?.length
+    ? timedWords.map((item) => ({ word: normalizeArabic(item.word), start: item.start, end: item.end })).filter((item) => item.word.length > 0)
+    : heardWords.map((word) => ({ word, start: 0, end: 0 }));
+  const alignment = alignWords(expectedWords, heardItems);
   const expectedRuleMap = new Map<string, TajweedRule[]>();
   expectedWords.forEach((word, index) => {
     expectedRuleMap.set(`${index + 1}:${word}`, tajweedRulesForWord(word, expectedWords[index + 1]));
@@ -503,7 +533,10 @@ export function evaluateTajweedTranscript(transcript: string, verses: QuranVerse
       status: step.status,
       note: feedbackNote(step, rules),
       rules: rules.map((rule) => rule.name),
-      improvement: rules[0]?.improvement
+      improvement: rules[0]?.improvement,
+      start: step.start,
+      end: step.end,
+      timingNote: timingHint(step, rules)
     };
   });
   const score = scoreAlignment(alignment, expectedWords.length);

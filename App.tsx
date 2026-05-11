@@ -35,9 +35,200 @@ import {
 } from "./src/api";
 
 type Status = "idle" | "recording" | "processing" | "results" | "error";
-type Section = "recognize" | "tajweed" | "coach" | "pricing" | "privacy" | "terms";
+type Section = "recognize" | "tajweed" | "rules" | "coach" | "pricing" | "privacy" | "terms";
 
 const popularSurahs = new Set([1, 2, 18, 36, 55, 67, 78, 87, 93, 94, 95, 96, 97, 99, 100, 103, 108, 109, 112, 113, 114]);
+const ruleDetails: Record<string, { short: string; detail: string; practice: string }> = {
+  Madd: {
+    short: "Lengthen a long vowel for its proper count.",
+    detail: "Madd happens when a long-vowel letter or madd sign requires extension. The basic natural madd is usually two counts, while connected and required madd can be longer depending on the rule and recitation style.",
+    practice: "Open the vowel cleanly, keep the sound steady, count with your fingers, and avoid changing pitch or adding a new vowel."
+  },
+  Ghunnah: {
+    short: "A nasal sound, usually held for about two counts.",
+    detail: "Ghunnah is the nasal resonance of noon and meem, especially when they have shaddah or appear in rules like ikhfa, idgham with ghunnah, and iqlab.",
+    practice: "Close or place the mouth for the letter, let the sound resonate through the nose, and keep it smooth without humming too loudly."
+  },
+  Qalqalah: {
+    short: "A light echo on ق ط ب ج د when sakin or stopped on.",
+    detail: "Qalqalah prevents certain stopped consonants from becoming dead or swallowed. It is a bounce, not a full extra vowel.",
+    practice: "Pronounce the consonant firmly, release it lightly, and stop before it turns into ba-a, da-a, or qa-a."
+  },
+  "Lam Shamsiyyah": {
+    short: "The lam of ال is not pronounced before sun letters.",
+    detail: "With sun letters, the lam in the definite article assimilates into the next letter, which carries shaddah.",
+    practice: "Skip the lam sound and move directly into the doubled sun letter, like ash-shams rather than al-shams."
+  },
+  "Heavy Lam": {
+    short: "The lam in Allah is heavy after fathah or dammah.",
+    detail: "The word Allah has a special lam. It is heavy after a fatḥah or ḍammah and light after kasrah.",
+    practice: "Raise the back of the tongue slightly for the heavy lam, but do not make it sound like a separate thick vowel."
+  },
+  Tafkheem: {
+    short: "Heavy letters are pronounced with fullness.",
+    detail: "Letters like خ ص ض غ ط ظ ق have tafkheem. They should not be flattened into their light-letter equivalents.",
+    practice: "Lift the back of the tongue and keep the sound broad while preserving the exact letter."
+  },
+  Ikhfa: {
+    short: "Hide noon sakin/tanween with nasalization.",
+    detail: "Ikhfa occurs when noon sakin or tanween is followed by one of the ikhfa letters. The noon is neither fully clear nor fully merged.",
+    practice: "Prepare for the next letter, keep a nasal sound for about two counts, then release into the next letter."
+  },
+  Idgham: {
+    short: "Merge noon sakin/tanween into the next letter.",
+    detail: "Idgham occurs before ي ر م ل و ن. Some forms have ghunnah and some do not, depending on the letter.",
+    practice: "Do not pronounce a separate noon. Move into the next letter smoothly, adding ghunnah when required."
+  },
+  Iqlab: {
+    short: "Turn noon/tanween toward meem before ب.",
+    detail: "Iqlab happens when noon sakin or tanween comes before ba. The sound changes toward meem with nasalization.",
+    practice: "Lightly close the lips for a hidden meem sound, hold the nasalization, then pronounce ba."
+  },
+  "Ikhfa Shafawi": {
+    short: "Hide meem sakin before ب.",
+    detail: "When meem sakin comes before ba, the meem is hidden with nasalization.",
+    practice: "Bring the lips close without a hard closure, hold the nasal sound, then say ba."
+  },
+  "Idgham Shafawi": {
+    short: "Merge meem sakin into another meem.",
+    detail: "When meem sakin is followed by meem, the two merge with ghunnah.",
+    practice: "Do not pronounce two separate meems. Hold the merged meem with nasal resonance."
+  },
+  "Hamzah clarity": {
+    short: "Make hamzah distinct and clean.",
+    detail: "Hamzah is a glottal stop and is often swallowed by beginners. It must be articulated clearly from the throat.",
+    practice: "Pause the airflow gently at the throat and release without over-tightening."
+  }
+};
+
+const ruleGuideContent: Record<
+  string,
+  { short: string; detail: string; practice: string; example: string; mouth: string; commonMistake: string; drill: string }
+> = {
+  Madd: {
+    short: "Lengthen a long vowel for its proper count.",
+    detail:
+      "Madd is elongation. It appears when a long-vowel letter or madd sign requires the sound to be held. Natural madd is usually two counts, while connected, separated, necessary, and stop-based madd can be longer depending on the recitation style.",
+    practice: "Open the vowel cleanly, keep the sound steady, count with your fingers, and avoid changing pitch or adding a new vowel.",
+    example: "مَالِكِ، الضَّالِّينَ",
+    mouth: "Keep the vowel open and stable. Do not squeeze the throat or pulse the voice during the held sound.",
+    commonMistake: "Clipping the long vowel too short, or turning one held vowel into two separate sounds.",
+    drill: "Say مَا for two calm counts, then مَالِكِ, then the full phrase without changing speed."
+  },
+  Ghunnah: {
+    short: "A nasal sound, usually held for about two counts.",
+    detail:
+      "Ghunnah is nasal resonance carried by noon and meem. It is strongest on noon or meem with shaddah, and also appears in ikhfa, idgham with ghunnah, iqlab, ikhfa shafawi, and idgham shafawi.",
+    practice: "Close or place the mouth for the letter, let the sound resonate through the nose, and keep it smooth without humming too loudly.",
+    example: "إِنَّ، ثُمَّ، مَنْ يَقُولُ",
+    mouth: "Let the air resonate through the nose while the tongue or lips prepare for the next letter.",
+    commonMistake: "Making it too short, making it theatrical and too loud, or adding a vowel after it.",
+    drill: "Hold نّ for two counts, then مّ for two counts, then recite إِنَّ and ثُمَّ slowly."
+  },
+  Qalqalah: {
+    short: "A light echo on ق ط ب ج د when sakin or stopped on.",
+    detail:
+      "Qalqalah is a controlled bounce on ق ط ب ج د when the letter is sakin or when you stop on it. The goal is to make the consonant clear without adding a full vowel after it.",
+    practice: "Pronounce the consonant firmly, release it lightly, and stop before it turns into ba-a, da-a, or qa-a.",
+    example: "أَحَدْ، يَجْعَلْ، قَدْ",
+    mouth: "Make the letter's makhraj firmly, then release a small echo from the same place.",
+    commonMistake: "Turning the echo into a new vowel, or swallowing the letter with no bounce.",
+    drill: "Practice أَدْ، أَبْ، أَقْ with a tiny release, then use the real Quran word."
+  },
+  "Lam Shamsiyyah": {
+    short: "The lam of ال is not pronounced before sun letters.",
+    detail: "With sun letters, the lam in the definite article assimilates into the next letter, which carries shaddah.",
+    practice: "Skip the lam sound and move directly into the doubled sun letter, like ash-shams rather than al-shams.",
+    example: "الشَّمْس، الرَّحْمَٰن، الصِّرَاط",
+    mouth: "Move from the vowel before ال straight into the doubled sun letter.",
+    commonMistake: "Pronouncing a clear lam before the sun letter.",
+    drill: "Say أَشْ, then الشَّمْس. Feel that the lam disappears into the ش."
+  },
+  "Heavy Lam": {
+    short: "The lam in Allah is heavy after fathah or dammah.",
+    detail: "The word Allah has a special lam. It is heavy after a fathah or dammah and light after kasrah.",
+    practice: "Raise the back of the tongue slightly for the heavy lam, but do not make it sound like a separate thick vowel.",
+    example: "قَالَ اللَّهُ، رَسُولُ اللَّهِ، بِاللَّهِ",
+    mouth: "The tongue tip still touches for lam, while the back of the tongue lifts slightly for heaviness.",
+    commonMistake: "Making every Allah lam heavy, even after kasrah, or making it sound like a different letter.",
+    drill: "Alternate بِاللَّهِ and قَالَ اللَّهُ to feel light lam versus heavy lam."
+  },
+  Tafkheem: {
+    short: "Heavy letters are pronounced with fullness.",
+    detail: "Letters like خ ص ض غ ط ظ ق have tafkheem. They should not be flattened into their light-letter equivalents.",
+    practice: "Lift the back of the tongue and keep the sound broad while preserving the exact letter.",
+    example: "صِرَاط، ضَالِّين، قُلْ",
+    mouth: "Keep the back of the tongue raised and the sound full, while the exact articulation point stays correct.",
+    commonMistake: "Making ص sound like س, ط like ت, or ق like ك.",
+    drill: "Compare سَ / صَ and تَ / طَ slowly, then recite the Quran word."
+  },
+  Ikhfa: {
+    short: "Hide noon sakin/tanween with nasalization.",
+    detail: "Ikhfa occurs when noon sakin or tanween is followed by one of the ikhfa letters. The noon is neither fully clear nor fully merged.",
+    practice: "Prepare for the next letter, keep a nasal sound for about two counts, then release into the next letter.",
+    example: "مِنْ قَبْل، أَنْ صَدُّوكُمْ",
+    mouth: "Shape toward the next letter while keeping nasal sound through the nose.",
+    commonMistake: "Saying a full clear noon, or deleting the nasal sound completely.",
+    drill: "Hold the nasal sound before ق or ص, then release gently into the next letter."
+  },
+  Idgham: {
+    short: "Merge noon sakin/tanween into the next letter.",
+    detail: "Idgham occurs before ي ر م ل و ن. Some forms have ghunnah and some do not, depending on the letter.",
+    practice: "Do not pronounce a separate noon. Move into the next letter smoothly, adding ghunnah when required.",
+    example: "مَنْ يَقُولُ، هُدًى لِّلْمُتَّقِينَ",
+    mouth: "Let the noon/tanween disappear into the next letter instead of striking a separate ن.",
+    commonMistake: "Pronouncing an extra noon before the merged letter.",
+    drill: "Say مَي rather than مَنْ يَ for idgham with ي, while preserving ghunnah."
+  },
+  Iqlab: {
+    short: "Turn noon/tanween toward meem before ب.",
+    detail: "Iqlab happens when noon sakin or tanween comes before ba. The sound changes toward meem with nasalization.",
+    practice: "Lightly close the lips for a hidden meem sound, hold the nasalization, then pronounce ba.",
+    example: "مِنْ بَعْدِ، سَمِيعٌ بَصِير",
+    mouth: "Bring the lips together lightly for the hidden meem, then open into ب.",
+    commonMistake: "Leaving a clear ن before ب, or closing the lips too hard.",
+    drill: "Say مِمْ بَعْدِ softly, then smooth it into مِنْ بَعْدِ."
+  },
+  "Ikhfa Shafawi": {
+    short: "Hide meem sakin before ب.",
+    detail: "When meem sakin comes before ba, the meem is hidden with nasalization.",
+    practice: "Bring the lips close without a hard closure, hold the nasal sound, then say ba.",
+    example: "تَرْمِيهِمْ بِحِجَارَة",
+    mouth: "The lips come close with softness, nasal sound continues, then ب is pronounced.",
+    commonMistake: "Snapping the lips shut too hard or skipping the nasal hold.",
+    drill: "Practice هُمْ بِ slowly, then place it back in the ayah."
+  },
+  "Idgham Shafawi": {
+    short: "Merge meem sakin into another meem.",
+    detail: "When meem sakin is followed by meem, the two merge with ghunnah.",
+    practice: "Do not pronounce two separate meems. Hold the merged meem with nasal resonance.",
+    example: "لَهُمْ مَّا",
+    mouth: "Close the lips for one held meem with nasal resonance.",
+    commonMistake: "Separating the two meems or dropping the ghunnah.",
+    drill: "Hold مّ for two counts, then recite لَهُمْ مَّا."
+  },
+  "Hamzah clarity": {
+    short: "Make hamzah distinct and clean.",
+    detail: "Hamzah is a glottal stop and is often swallowed by beginners. It must be articulated clearly from the throat.",
+    practice: "Pause the airflow gently at the throat and release without over-tightening.",
+    example: "أَنْعَمْتَ، إِيَّاكَ، السَّمَاء",
+    mouth: "The sound starts with a clean throat closure and release, not from the tongue or lips.",
+    commonMistake: "Smoothing hamzah until it disappears, especially at the start of words.",
+    drill: "Practice أَ، إِ، أُ as clean starts, then recite the full word."
+  }
+};
+
+function ruleInfo(rule: string) {
+  return ruleGuideContent[rule] || {
+    short: ruleDetails[rule]?.short || "Review this tajweed rule with a qualified teacher.",
+    detail: ruleDetails[rule]?.detail || "This rule was detected near one of the highlighted words.",
+    practice: ruleDetails[rule]?.practice || "Practice slowly, then record the same ayah again.",
+    example: "",
+    mouth: "Focus on the letter's correct articulation point and timing.",
+    commonMistake: "Rushing the word or changing the letter while trying to apply the rule.",
+    drill: "Repeat the marked word alone, then repeat it inside the full ayah."
+  };
+}
 
 function isHostedWeb() {
   return Platform.OS === "web" && typeof window !== "undefined" && window.location.hostname !== "localhost";
@@ -95,8 +286,10 @@ export default function App() {
   const [tajweedResult, setTajweedResult] = useState<TajweedEvaluationResponse | null>(null);
   const [tajweedSurah, setTajweedSurah] = useState("1");
   const [tajweedAyahStart, setTajweedAyahStart] = useState("1");
-  const [tajweedAyahEnd, setTajweedAyahEnd] = useState("7");
+  const [tajweedAyahEnd, setTajweedAyahEnd] = useState("");
+  const [ruleTooltip, setRuleTooltip] = useState<{ rule: string; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ruleHoverRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -365,6 +558,25 @@ export default function App() {
   function setTajweedSurahFromChip(number: number) {
     setTajweedSurah(String(number));
     setSelectedSurahs([number]);
+    setSurahQuery("");
+  }
+
+  function showRuleTooltip(rule: string) {
+    if (ruleHoverRef.current) {
+      clearTimeout(ruleHoverRef.current);
+    }
+    ruleHoverRef.current = setTimeout(() => {
+      const info = ruleInfo(rule);
+      setRuleTooltip({ rule, text: `${info.short} ${info.practice}` });
+    }, 1000);
+  }
+
+  function hideRuleTooltip() {
+    if (ruleHoverRef.current) {
+      clearTimeout(ruleHoverRef.current);
+      ruleHoverRef.current = null;
+    }
+    setRuleTooltip(null);
   }
 
   function tajweedTarget() {
@@ -590,20 +802,22 @@ export default function App() {
         <View style={styles.topNav}>
           <Text style={styles.brand}>Ayah Finder</Text>
           <View style={styles.navLinks}>
-            {(["recognize", "tajweed", "coach", "pricing", "privacy", "terms"] as Section[]).map((item) => (
+            {(["recognize", "tajweed", "rules", "coach", "pricing", "privacy", "terms"] as Section[]).map((item) => (
               <Pressable key={item} onPress={() => setSection(item)} style={[styles.navButton, section === item && styles.activeNavButton]}>
                 <Text style={[styles.navButtonText, section === item && styles.activeNavButtonText]}>
                   {item === "recognize"
                     ? "Recognize"
                     : item === "tajweed"
                       ? "Tajweed"
-                      : item === "coach"
-                        ? "Coach"
-                        : item === "pricing"
-                          ? "Pricing"
-                          : item === "privacy"
-                            ? "Privacy"
-                            : "Terms"}
+                      : item === "rules"
+                        ? "Rules"
+                        : item === "coach"
+                          ? "Coach"
+                          : item === "pricing"
+                            ? "Pricing"
+                            : item === "privacy"
+                              ? "Privacy"
+                              : "Terms"}
                 </Text>
               </Pressable>
             ))}
@@ -721,6 +935,52 @@ export default function App() {
           </View>
         ) : null}
 
+        {section === "rules" ? (
+          <View style={styles.rulesPage}>
+            <View style={styles.legalPanel}>
+              <Text style={styles.kicker}>Tajweed Guide</Text>
+              <Text style={styles.sectionTitle}>Rules, pronunciation, and practice drills</Text>
+              <Text style={styles.translation}>
+                This guide explains the rules the checker can highlight. Use it as a study aid beside a teacher: the app can spot likely word, timing, and rule issues, but a qualified teacher is still the best source for exact makhraj and tajweed correction.
+              </Text>
+            </View>
+            {Object.entries(ruleGuideContent).map(([rule, info]) => (
+              <View key={rule} style={styles.ruleGuideCard}>
+                <View style={styles.ruleGuideHeader}>
+                  <View style={styles.visualPanel}>
+                    <View style={styles.mouthDiagram}>
+                      <View style={styles.mouthArc} />
+                      <View style={styles.tongueShape} />
+                      <View style={styles.airPath} />
+                    </View>
+                    <Text style={styles.visualCaption}>{info.mouth}</Text>
+                  </View>
+                  <View style={styles.ruleGuideCopy}>
+                    <Text style={styles.matchTitle}>{rule}</Text>
+                    <Text style={styles.ruleShort}>{info.short}</Text>
+                    <Text style={styles.arabicExample}>{info.example}</Text>
+                  </View>
+                </View>
+                <Text style={styles.translation}>{info.detail}</Text>
+                <View style={styles.ruleLessonGrid}>
+                  <View style={styles.ruleLessonBox}>
+                    <Text style={styles.fieldLabel}>How to pronounce</Text>
+                    <Text style={styles.wordNote}>{info.practice}</Text>
+                  </View>
+                  <View style={styles.ruleLessonBox}>
+                    <Text style={styles.fieldLabel}>Common mistake</Text>
+                    <Text style={styles.wordNote}>{info.commonMistake}</Text>
+                  </View>
+                  <View style={styles.ruleLessonBox}>
+                    <Text style={styles.fieldLabel}>Practice drill</Text>
+                    <Text style={styles.wordNote}>{info.drill}</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {section === "tajweed" ? (
           <>
             <View style={styles.layout}>
@@ -783,28 +1043,28 @@ export default function App() {
               <View style={styles.filterPanel}>
                 <Text style={styles.panelTitle}>2. Choose what you will recite</Text>
                 <Text style={styles.helperText}>Tajweed Practice needs the exact surah and ayah range so it can mark mistakes in the right location.</Text>
+                <View style={styles.selectedSurahBox}>
+                  <Text style={styles.fieldLabel}>Selected surah</Text>
+                  <Text style={styles.selectedSurahLabel}>{tajweedTargetLabel.split(" ").slice(0, -1).join(" ") || "Choose a surah"}</Text>
+                </View>
+                <TextInput
+                  value={surahQuery}
+                  onChangeText={setSurahQuery}
+                  placeholder="Search and select a surah name or number"
+                  placeholderTextColor="#7d8884"
+                  style={styles.searchInput}
+                />
                 <View style={styles.targetGrid}>
-                  <View style={styles.targetField}>
-                    <Text style={styles.fieldLabel}>Surah</Text>
-                    <TextInput value={tajweedSurah} onChangeText={setTajweedSurah} keyboardType="number-pad" style={styles.targetInput} />
-                  </View>
                   <View style={styles.targetField}>
                     <Text style={styles.fieldLabel}>Start ayah</Text>
                     <TextInput value={tajweedAyahStart} onChangeText={setTajweedAyahStart} keyboardType="number-pad" style={styles.targetInput} />
                   </View>
                   <View style={styles.targetField}>
-                    <Text style={styles.fieldLabel}>End ayah</Text>
-                    <TextInput value={tajweedAyahEnd} onChangeText={setTajweedAyahEnd} keyboardType="number-pad" style={styles.targetInput} />
+                    <Text style={styles.fieldLabel}>End ayah optional</Text>
+                    <TextInput value={tajweedAyahEnd} onChangeText={setTajweedAyahEnd} keyboardType="number-pad" placeholder="Same as start" placeholderTextColor="#7d8884" style={styles.targetInput} />
                   </View>
                 </View>
-                <TextInput
-                  value={surahQuery}
-                  onChangeText={setSurahQuery}
-                  placeholder="Search surah name or number"
-                  placeholderTextColor="#7d8884"
-                  style={styles.searchInput}
-                />
-                <View style={styles.surahGrid}>
+                <View style={[styles.surahGrid, styles.dropdownList]}>
                   {filteredSurahs.map((surah) => {
                     const selected = Number(tajweedSurah) === surah.number;
                     return (
@@ -844,14 +1104,30 @@ export default function App() {
                 {tajweedResult.ruleSummary && tajweedResult.ruleSummary.length > 0 ? (
                   <View style={styles.rulePanel}>
                     <Text style={styles.panelTitle}>Tajweed Focus</Text>
+                    <Text style={styles.helperText}>Hover a rule for one second, or tap it, to see what it means.</Text>
                     <View style={styles.ruleGrid}>
                       {tajweedResult.ruleSummary.map((item) => (
-                        <View key={item.rule} style={styles.rulePill}>
+                        <Pressable
+                          key={item.rule}
+                          style={styles.rulePill}
+                          onHoverIn={() => showRuleTooltip(item.rule)}
+                          onHoverOut={hideRuleTooltip}
+                          onPress={() => {
+                            const info = ruleInfo(item.rule);
+                            setRuleTooltip({ rule: item.rule, text: `${info.short} ${info.practice}` });
+                          }}
+                        >
                           <Text style={styles.ruleText}>{item.rule}</Text>
                           <Text style={styles.ruleCount}>{item.count}</Text>
-                        </View>
+                        </Pressable>
                       ))}
                     </View>
+                    {ruleTooltip ? (
+                      <View style={styles.ruleTooltip}>
+                        <Text style={styles.ruleTooltipTitle}>{ruleTooltip.rule}</Text>
+                        <Text style={styles.ruleTooltipText}>{ruleTooltip.text}</Text>
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
                 {tajweedInfographicUri ? <Image source={{ uri: tajweedInfographicUri }} style={styles.infographic} resizeMode="contain" /> : null}
@@ -863,22 +1139,44 @@ export default function App() {
                       {word.rules && word.rules.length > 0 ? (
                         <View style={styles.miniRuleRow}>
                           {word.rules.slice(0, 3).map((rule) => (
-                            <Text key={rule} style={styles.miniRule}>{rule}</Text>
+                            <Pressable
+                              key={rule}
+                              onHoverIn={() => showRuleTooltip(rule)}
+                              onHoverOut={hideRuleTooltip}
+                              onPress={() => {
+                                const info = ruleInfo(rule);
+                                setRuleTooltip({ rule, text: `${info.short} ${info.practice}` });
+                              }}
+                            >
+                              <Text style={styles.miniRule}>{rule}</Text>
+                            </Pressable>
                           ))}
                         </View>
                       ) : null}
                       {word.improvement ? <Text style={styles.wordImprove}>{word.improvement}</Text> : null}
+                      {word.timingNote ? <Text style={styles.wordImprove}>{word.timingNote}</Text> : null}
                     </View>
                   ))}
                 </View>
                 {tajweedResult.history && tajweedResult.history.length > 0 ? (
                   <View style={styles.progressPanel}>
-                    <Text style={styles.panelTitle}>Improvement over time</Text>
+                    <Text style={styles.panelTitle}>Improvement for {tajweedTargetLabel}</Text>
                     <View style={styles.progressBars}>
                       {tajweedResult.history.slice().reverse().map((attempt) => (
                         <View key={attempt.id} style={styles.progressBarSlot}>
                           <View style={[styles.progressBar, { height: `${Math.max(8, attempt.score)}%` }]} />
                           <Text style={styles.progressLabel}>{attempt.score}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <View style={styles.historyList}>
+                      {tajweedResult.history.slice(0, 6).map((attempt) => (
+                        <View key={`row-${attempt.id}`} style={styles.historyRow}>
+                          <Text style={styles.historyScore}>{attempt.score}%</Text>
+                          <Text style={styles.historyMeta}>{new Date(attempt.createdAt).toLocaleString()}</Text>
+                          <Text style={styles.historyMeta} numberOfLines={1}>
+                            {(attempt.transcript || "No transcript").slice(0, 80)}
+                          </Text>
                         </View>
                       ))}
                     </View>
@@ -1439,6 +1737,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800"
   },
+  selectedSurahBox: {
+    gap: 5,
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: "#f8f4eb"
+  },
+  selectedSurahLabel: {
+    color: "#17211f",
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  dropdownList: {
+    maxHeight: 220,
+    overflow: "hidden"
+  },
   surahGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1594,6 +1909,123 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900"
   },
+  ruleTooltip: {
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#0f766e",
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: "#ecfdf5"
+  },
+  ruleTooltipTitle: {
+    color: "#0f766e",
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  ruleTooltipText: {
+    color: "#17211f",
+    fontSize: 14,
+    lineHeight: 20
+  },
+  rulesPage: {
+    gap: 14
+  },
+  ruleGuideCard: {
+    gap: 14,
+    padding: 18,
+    backgroundColor: "#fffdf8",
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8
+  },
+  ruleGuideHeader: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+    alignItems: "stretch"
+  },
+  visualPanel: {
+    flexBasis: 220,
+    flexGrow: 1,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8,
+    padding: 14,
+    backgroundColor: "#f8f4eb"
+  },
+  mouthDiagram: {
+    height: 118,
+    borderRadius: 8,
+    backgroundColor: "#fff7ed",
+    overflow: "hidden",
+    position: "relative"
+  },
+  mouthArc: {
+    position: "absolute",
+    left: 28,
+    right: 28,
+    top: 24,
+    height: 58,
+    borderTopWidth: 8,
+    borderColor: "#92400e",
+    borderRadius: 70
+  },
+  tongueShape: {
+    position: "absolute",
+    left: 54,
+    right: 54,
+    bottom: 20,
+    height: 34,
+    borderRadius: 24,
+    backgroundColor: "#fdba74"
+  },
+  airPath: {
+    position: "absolute",
+    left: 110,
+    top: 14,
+    width: 12,
+    height: 92,
+    borderRadius: 6,
+    backgroundColor: "#5eead4"
+  },
+  visualCaption: {
+    color: "#42514d",
+    fontSize: 13,
+    lineHeight: 19
+  },
+  ruleGuideCopy: {
+    flexBasis: 320,
+    flexGrow: 2,
+    gap: 8
+  },
+  ruleShort: {
+    color: "#0f766e",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  arabicExample: {
+    color: "#111827",
+    fontSize: 30,
+    lineHeight: 44,
+    textAlign: "right",
+    writingDirection: "rtl"
+  },
+  ruleLessonGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10
+  },
+  ruleLessonBox: {
+    flexBasis: 220,
+    flexGrow: 1,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: "#f8f4eb"
+  },
   wordGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1692,6 +2124,28 @@ const styles = StyleSheet.create({
     color: "#51615d",
     fontSize: 12,
     fontWeight: "800"
+  },
+  historyList: {
+    gap: 8
+  },
+  historyRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#eee3d3",
+    paddingTop: 8
+  },
+  historyScore: {
+    color: "#0f766e",
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  historyMeta: {
+    color: "#51615d",
+    fontSize: 13,
+    flexShrink: 1
   },
   sectionTitle: {
     color: "#17211f",

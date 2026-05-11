@@ -4,6 +4,8 @@ import OpenAI from "openai";
 import { preprocessForSpeech } from "./audioPreprocess";
 
 export type Transcriber = (filePath: string) => Promise<string>;
+export type TimedWord = { word: string; start: number; end: number };
+export type TimedTranscription = { text: string; words: TimedWord[] };
 
 type DeepSeekChatResponse = {
   choices?: Array<{
@@ -45,6 +47,38 @@ function createOpenAITranscriber(): Transcriber {
       await fsp.unlink(speechPath).catch(() => undefined);
     }
   };
+}
+
+export async function transcribeWithWordTimestamps(filePath: string): Promise<TimedTranscription> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is required for timestamp alignment.");
+  }
+
+  const openai = new OpenAI({ apiKey });
+  const speechPath = await preprocessForSpeech(filePath, "openai-align");
+  const shouldPreprocess = process.env.PREPROCESS_TRANSCRIPTION_AUDIO !== "false";
+  const inputPath = shouldPreprocess ? speechPath : filePath;
+  try {
+    const transcription = (await openai.audio.transcriptions.create({
+      file: fs.createReadStream(inputPath),
+      model: process.env.OPENAI_ALIGNMENT_MODEL || "whisper-1",
+      language: "ar",
+      response_format: "verbose_json",
+      timestamp_granularities: ["word"]
+    } as any)) as { text?: string; words?: TimedWord[] };
+
+    return {
+      text: transcription.text || "",
+      words: (transcription.words || []).map((item) => ({
+        word: item.word,
+        start: Number(item.start),
+        end: Number(item.end)
+      }))
+    };
+  } finally {
+    await fsp.unlink(speechPath).catch(() => undefined);
+  }
 }
 
 async function callDeepSeek(messages: Array<{ role: "system" | "user"; content: string }>): Promise<string> {

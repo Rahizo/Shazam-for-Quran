@@ -102,6 +102,9 @@ export type TajweedWordFeedback = {
   note: string;
   rules?: string[];
   improvement?: string;
+  start?: number;
+  end?: number;
+  timingNote?: string;
 };
 
 export type TajweedAttempt = {

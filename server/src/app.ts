@@ -13,7 +13,7 @@ import { findVerse, listSurahs, loadQuranCorpus } from "./quranData";
 import { CorrectionInput, MemorizationStatus, StoredUser } from "./saasTypes";
 import { getStore } from "./store";
 import { evaluateTajweedTranscript } from "./tajweed";
-import { createConfiguredTranscriber, refineArabicTranscriptWithDeepSeek, Transcriber } from "./transcribe";
+import { createConfiguredTranscriber, refineArabicTranscriptWithDeepSeek, transcribeWithWordTimestamps, Transcriber } from "./transcribe";
 import { IdentifyResponse, MatchCandidate } from "./types";
 import { assertRecognitionAllowed, usageSummary } from "./usage";
 
@@ -481,18 +481,31 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
       await assertRecognitionAllowed(store, user, anonymousKey);
       const surahNumber = parseRequiredInt(request.body?.surahNumber, "Surah");
       const ayahStart = parseRequiredInt(request.body?.ayahStart, "Starting ayah");
-      const ayahEnd = parseRequiredInt(request.body?.ayahEnd, "Ending ayah");
+      const ayahEnd =
+        request.body?.ayahEnd === undefined || request.body?.ayahEnd === ""
+          ? ayahStart
+          : parseRequiredInt(request.body?.ayahEnd, "Ending ayah");
       const recognitionMode = parseRecognitionMode(request.body?.recognitionMode);
       const verses = targetVerses(corpus, surahNumber, ayahStart, ayahEnd);
       transcriptionPath = await ensureTranscriptionFilename(file);
-      const storedExtension = path.extname(transcriptionPath);
+      const readyTranscriptionPath = transcriptionPath;
+      const storedExtension = path.extname(readyTranscriptionPath);
       let transcriptionError: string | undefined;
-      const transcript = await (recognitionMode === "openai_hybrid" ? transcriber(transcriptionPath) : localTranscriber(transcriptionPath)).catch((error) => {
+      let timedWords: Array<{ word: string; start: number; end: number }> = [];
+      const transcript = await (recognitionMode === "openai_hybrid"
+        ? transcribeWithWordTimestamps(readyTranscriptionPath)
+            .then((timed) => {
+              timedWords = timed.words;
+              return timed.text;
+            })
+            .catch(() => transcriber(readyTranscriptionPath))
+        : localTranscriber(readyTranscriptionPath)
+      ).catch((error) => {
         transcriptionError = error instanceof Error ? error.message : "Transcription failed.";
         return "";
       });
       const transcriptTokens = tokenizeArabic(transcript);
-      const evaluation = evaluateTajweedTranscript(transcript, verses);
+      const evaluation = evaluateTajweedTranscript(transcript, verses, timedWords);
       const attempt = user
         ? await store.saveTajweedAttempt(user.id, {
             surahNumber: evaluation.surahNumber,
@@ -508,7 +521,16 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
         : undefined;
 
       await store.recordUsage({ userId: user?.id, anonymousKey: user ? undefined : anonymousKey, kind: "recognition" });
-      const history = user ? await store.listTajweedAttempts(user.id, 8) : [];
+      const history = user
+        ? (await store.listTajweedAttempts(user.id, 40))
+            .filter(
+              (item) =>
+                item.surahNumber === evaluation.surahNumber &&
+                item.ayahStart === evaluation.ayahStart &&
+                item.ayahEnd === evaluation.ayahEnd
+            )
+            .slice(0, 8)
+        : [];
       response.json({
         ...evaluation,
         recognitionMode,
