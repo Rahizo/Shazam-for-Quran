@@ -5,6 +5,7 @@ const punctuation = /[^\p{Script=Arabic}\p{Number}\s]/gu;
 export function normalizeArabic(input: string): string {
   return input
     .normalize("NFKC")
+    .replace(/\u0670/g, "\u0627")
     .replace(arabicDiacritics, "")
     .replace(quranMarks, "")
     .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")

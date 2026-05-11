@@ -34,10 +34,10 @@ function escapeXml(value: string) {
 
 function originalArabicWords(text: string) {
   return text
-    .replace(/[^\p{Script=Arabic}\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
+    .map((word) => word.replace(/^[^\p{Script=Arabic}]+|[^\p{Script=Arabic}\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]+$/gu, ""))
     .filter(Boolean);
 }
 
@@ -63,6 +63,11 @@ function tokenSimilarity(a = "", b = "") {
     return 0;
   }
   if (a === b) {
+    return 1;
+  }
+  const relaxedA = a.replace(/\u0627/g, "");
+  const relaxedB = b.replace(/\u0627/g, "");
+  if (relaxedA.length >= 2 && relaxedA === relaxedB) {
     return 1;
   }
   const distance = editDistance(a, b);
