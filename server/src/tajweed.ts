@@ -34,6 +34,8 @@ function escapeXml(value: string) {
 
 function originalArabicWords(text: string) {
   return text
+    .replace(/([\u0640\u0670])\s+(?=\p{Script=Arabic})/gu, "$1")
+    .replace(/(\p{Script=Arabic})\s+(\u0670)/gu, "$1$2")
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
