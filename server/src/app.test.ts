@@ -79,6 +79,29 @@ describe("identify API", () => {
     expect(response.body.words.length).toBeGreaterThan(0);
   });
 
+  it("infers tajweed end ayah when end ayah is omitted", async () => {
+    const tmpFile = path.join(os.tmpdir(), `tajweed-infer-${Date.now()}.webm`);
+    fs.writeFileSync(tmpFile, "fake audio");
+
+    const app = createApp(async () => "\u0642\u0644 \u0647\u0648 \u0627\u0644\u0644\u0647 \u0627\u062d\u062f \u0627\u0644\u0644\u0647 \u0627\u0644\u0635\u0645\u062f");
+    const response = await request(app)
+      .post("/api/tajweed/evaluate")
+      .field("surahNumber", "112")
+      .field("ayahStart", "1")
+      .attach("audio", tmpFile, {
+        filename: "tajweed.webm",
+        contentType: "audio/webm"
+      });
+
+    fs.unlinkSync(tmpFile);
+
+    expect(response.status).toBe(200);
+    expect(response.body.surahNumber).toBe(112);
+    expect(response.body.ayahStart).toBe(1);
+    expect(response.body.ayahEnd).toBe(2);
+    expect(response.body.score).toBeGreaterThanOrEqual(80);
+  });
+
   it("identifies from a typed transcript", async () => {
     const app = createApp(async () => "");
     const response = await request(app).post("/api/identify-text").send({

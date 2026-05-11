@@ -261,6 +261,163 @@ function formatBytes(bytes?: number) {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
+function normalizeSurahSearch(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/surah|sura|sorat|surat|chapter/g, "")
+    .replace(/['`’‘ʿ]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function squeezeVowels(value: string) {
+  return value.replace(/aa+/g, "a").replace(/ee+/g, "i").replace(/ii+/g, "i").replace(/oo+/g, "u").replace(/uu+/g, "u");
+}
+
+const surahAliases: Record<number, string[]> = {
+  1: ["fatiha", "fatihah", "faatihah", "alhamd"],
+  2: ["baqara", "baqarah", "bakara", "bakarah"],
+  3: ["imran", "aalimran", "alimran"],
+  4: ["nisa", "nisaa", "women"],
+  5: ["maidah", "maida", "mayidah"],
+  6: ["anam", "anaam"],
+  7: ["araf", "araaf"],
+  8: ["anfal"],
+  9: ["tawbah", "taubah", "baraah"],
+  10: ["yunus", "younus"],
+  11: ["hud", "hood"],
+  12: ["yusuf", "yousuf", "yoosuf"],
+  13: ["rad", "raad"],
+  14: ["ibrahim", "ebraheem"],
+  15: ["hijr"],
+  16: ["nahl"],
+  17: ["isra", "israa", "baniisrail"],
+  18: ["kahf"],
+  19: ["maryam", "mariam"],
+  20: ["taha", "ta ha"],
+  21: ["anbiya", "anbiyaa"],
+  22: ["hajj", "haj"],
+  23: ["muminoon", "muminun"],
+  24: ["nur", "noor"],
+  25: ["furqan"],
+  26: ["shuara", "shuaraa"],
+  27: ["naml"],
+  28: ["qasas", "kasas"],
+  29: ["ankabut", "ankaboot"],
+  30: ["rum", "room"],
+  31: ["luqman", "lukman"],
+  32: ["sajdah", "sajda"],
+  33: ["ahzab"],
+  34: ["saba"],
+  35: ["fatir", "faatir"],
+  36: ["yasin", "ya seen", "yaa seen"],
+  37: ["saffat", "saaffat"],
+  38: ["sad", "saad"],
+  39: ["zumar"],
+  40: ["ghafir", "mumin"],
+  41: ["fussilat", "fusilat"],
+  42: ["shura", "shoora"],
+  43: ["zukhruf"],
+  44: ["dukhan", "dukhon"],
+  45: ["jathiyah", "jathiya"],
+  46: ["ahqaf"],
+  47: ["muhammad", "mohammad"],
+  48: ["fath", "fat-h"],
+  49: ["hujurat"],
+  50: ["qaf", "qaaf"],
+  51: ["dhariyat", "zariyat"],
+  52: ["tur", "toor"],
+  53: ["najm"],
+  54: ["qamar", "kamar"],
+  55: ["rahman", "rahmaan"],
+  56: ["waqiah", "waqia"],
+  57: ["hadid", "hadeed"],
+  58: ["mujadilah", "mujadila"],
+  59: ["hashr"],
+  60: ["mumtahina", "mumtahanah"],
+  61: ["saff", "saf"],
+  62: ["jumuah", "jumua"],
+  63: ["munafiqun", "munafiqoon"],
+  64: ["taghabun", "taghaboon"],
+  65: ["talaq", "talak"],
+  66: ["tahrim"],
+  67: ["mulk"],
+  68: ["qalam", "kalam"],
+  69: ["haqqah", "haaqqa"],
+  70: ["maarij", "ma'arij"],
+  71: ["nuh", "nooh"],
+  72: ["jinn"],
+  73: ["muzzammil"],
+  74: ["muddathir"],
+  75: ["qiyamah", "qiyama"],
+  76: ["insan", "dahr"],
+  77: ["mursalat"],
+  78: ["naba", "nabaa"],
+  79: ["naziat", "naaziat"],
+  80: ["abasa"],
+  81: ["takwir"],
+  82: ["infitar"],
+  83: ["mutaffifin"],
+  84: ["inshiqaq"],
+  85: ["buruj", "burooj"],
+  86: ["tariq", "taariq"],
+  87: ["ala", "a'la", "alaa"],
+  88: ["ghashiyah", "ghashiya"],
+  89: ["fajr"],
+  90: ["balad"],
+  91: ["shams"],
+  92: ["layl", "lail"],
+  93: ["duha", "dhuha"],
+  94: ["sharh", "inshirah"],
+  95: ["tin", "teen"],
+  96: ["alaq"],
+  97: ["qadr", "kadr"],
+  98: ["bayyinah", "bayyina"],
+  99: ["zalzalah", "zilzal"],
+  100: ["adiyat", "aadiyat"],
+  101: ["qariah", "qaria"],
+  102: ["takathur"],
+  103: ["asr"],
+  104: ["humazah"],
+  105: ["fil", "feel"],
+  106: ["quraysh", "quraish"],
+  107: ["maun", "maoon"],
+  108: ["kawthar", "kauthar"],
+  109: ["kafirun", "kafiroon"],
+  110: ["nasr"],
+  111: ["masad", "lahab"],
+  112: ["ikhlas", "ikhlaas"],
+  113: ["falaq", "falak"],
+  114: ["nas", "naas"]
+};
+
+function surahMatchesQuery(surah: SurahOption, query: string) {
+  const raw = query.trim();
+  if (!raw) {
+    return true;
+  }
+  if (String(surah.number) === raw) {
+    return true;
+  }
+  const queryForms = new Set([normalizeSurahSearch(raw), squeezeVowels(normalizeSurahSearch(raw))]);
+  const names = [surah.name, ...(surahAliases[surah.number] || [])];
+  const candidateForms = new Set<string>();
+  for (const name of names) {
+    const normalized = normalizeSurahSearch(name);
+    const withoutArticle = normalized.replace(/^(al|el|ar|as|ash|an|at|az|ad|ath|adh)/, "");
+    candidateForms.add(normalized);
+    candidateForms.add(withoutArticle);
+    candidateForms.add(squeezeVowels(normalized));
+    candidateForms.add(squeezeVowels(withoutArticle));
+    candidateForms.add(normalized.replace(/q/g, "k"));
+    candidateForms.add(normalized.replace(/kh/g, "x"));
+  }
+  return [...queryForms].some((queryForm) =>
+    [...candidateForms].some((candidate) => candidate.includes(queryForm) || (queryForm.length >= 4 && queryForm.includes(candidate)))
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status>("idle");
   const [duration, setDuration] = useState(0);
@@ -302,11 +459,9 @@ export default function App() {
   const localWhisperAvailable = !isHostedWeb();
 
   const filteredSurahs = useMemo(() => {
-    const query = surahQuery.trim().toLowerCase();
+    const query = surahQuery.trim();
     const base = query.length > 0 ? surahs : surahs.filter((surah) => popularSurahs.has(surah.number));
-    return base.filter((surah) => {
-      return query.length === 0 || surah.name.toLowerCase().includes(query) || String(surah.number) === query;
-    });
+    return base.filter((surah) => surahMatchesQuery(surah, query));
   }, [surahQuery, surahs]);
 
   const selectedLabel =
@@ -348,8 +503,9 @@ export default function App() {
     const surahNumber = Number(tajweedSurah);
     const surah = surahs.find((item) => item.number === surahNumber);
     const start = Number(tajweedAyahStart) || 1;
-    const end = Number(tajweedAyahEnd) || start;
-    const ayahRange = start === end ? String(start) : `${start}-${end}`;
+    const hasEnd = tajweedAyahEnd.trim().length > 0;
+    const end = hasEnd ? Number(tajweedAyahEnd) || start : start;
+    const ayahRange = hasEnd ? (start === end ? String(start) : `${start}-${end}`) : `${start}+`;
     return `${surah?.name || `Surah ${surahNumber || 1}`} ${ayahRange}`;
   }, [surahs, tajweedAyahEnd, tajweedAyahStart, tajweedSurah]);
 
@@ -582,11 +738,11 @@ export default function App() {
   function tajweedTarget() {
     const surahNumber = Number(tajweedSurah);
     const ayahStart = Number(tajweedAyahStart);
-    const ayahEnd = Number(tajweedAyahEnd || tajweedAyahStart);
+    const ayahEnd = tajweedAyahEnd.trim().length > 0 ? Number(tajweedAyahEnd) : undefined;
     if (!Number.isInteger(surahNumber) || surahNumber < 1 || surahNumber > 114) {
       throw new Error("Choose a valid surah number for Tajweed Practice.");
     }
-    if (!Number.isInteger(ayahStart) || !Number.isInteger(ayahEnd) || ayahStart < 1 || ayahEnd < ayahStart) {
+    if (!Number.isInteger(ayahStart) || ayahStart < 1 || (ayahEnd !== undefined && (!Number.isInteger(ayahEnd) || ayahEnd < ayahStart))) {
       throw new Error("Choose a valid ayah range for Tajweed Practice.");
     }
     return { surahNumber, ayahStart, ayahEnd };

@@ -306,7 +306,7 @@ export async function identifyRecitation(recording: string | Blob, surahNumbers:
 
 export async function evaluateTajweed(
   recording: string | Blob,
-  target: { surahNumber: number; ayahStart: number; ayahEnd: number },
+  target: { surahNumber: number; ayahStart: number; ayahEnd?: number },
   recognitionMode: RecognitionMode = "openai_hybrid"
 ): Promise<TajweedEvaluationResponse> {
   const formData = new FormData();
@@ -324,7 +324,9 @@ export async function evaluateTajweed(
   }
   formData.append("surahNumber", String(target.surahNumber));
   formData.append("ayahStart", String(target.ayahStart));
-  formData.append("ayahEnd", String(target.ayahEnd));
+  if (target.ayahEnd !== undefined) {
+    formData.append("ayahEnd", String(target.ayahEnd));
+  }
   formData.append("recognitionMode", recognitionMode);
   formData.append("anonymousKey", getAnonymousKey());
 

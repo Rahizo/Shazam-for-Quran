@@ -162,6 +162,47 @@ function targetVerses(corpus: ReturnType<typeof loadQuranCorpus>, surahNumber: n
   return verses;
 }
 
+function tokenOverlapRatio(left: string[], right: string[]) {
+  if (left.length === 0 || right.length === 0) {
+    return 0;
+  }
+  const rightSet = new Set(right);
+  const hits = left.filter((token) => rightSet.has(token)).length;
+  return hits / left.length;
+}
+
+function timedWordsAgreeWithTranscript(timedWords: Array<{ word: string; start: number; end: number }>, transcript: string) {
+  const transcriptTokens = tokenizeArabic(transcript);
+  const timedTokens = timedWords.flatMap((item) => tokenizeArabic(item.word));
+  if (timedTokens.length === 0) {
+    return false;
+  }
+  if (transcriptTokens.length < 2) {
+    return timedTokens.length > 0;
+  }
+  const overlap = Math.max(tokenOverlapRatio(timedTokens, transcriptTokens), tokenOverlapRatio(transcriptTokens, timedTokens));
+  return overlap >= 0.45;
+}
+
+function inferTargetVerses(
+  corpus: ReturnType<typeof loadQuranCorpus>,
+  surahNumber: number,
+  ayahStart: number,
+  explicitAyahEnd: number | undefined,
+  transcript: string
+) {
+  if (explicitAyahEnd !== undefined) {
+    return targetVerses(corpus, surahNumber, ayahStart, explicitAyahEnd);
+  }
+
+  const surahCorpus = corpus.filter((verse) => verse.surahNumber === surahNumber && verse.ayahNumber >= ayahStart);
+  const matches = findMatches(transcript, surahCorpus, 30)
+    .filter((match) => match.surahNumber === surahNumber && match.ayahStart === ayahStart)
+    .sort((a, b) => b.confidence - a.confidence || a.ayahEnd - b.ayahEnd);
+  const inferredEnd = matches[0] && matches[0].confidence >= 0.25 ? matches[0].ayahEnd : ayahStart;
+  return targetVerses(corpus, surahNumber, ayahStart, inferredEnd);
+}
+
 function matchKey(match: MatchCandidate) {
   return `${match.surahNumber}:${match.ayahStart}-${match.ayahEnd}`;
 }
@@ -481,30 +522,37 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
       await assertRecognitionAllowed(store, user, anonymousKey);
       const surahNumber = parseRequiredInt(request.body?.surahNumber, "Surah");
       const ayahStart = parseRequiredInt(request.body?.ayahStart, "Starting ayah");
-      const ayahEnd =
+      const explicitAyahEnd =
         request.body?.ayahEnd === undefined || request.body?.ayahEnd === ""
-          ? ayahStart
+          ? undefined
           : parseRequiredInt(request.body?.ayahEnd, "Ending ayah");
       const recognitionMode = parseRecognitionMode(request.body?.recognitionMode);
-      const verses = targetVerses(corpus, surahNumber, ayahStart, ayahEnd);
       transcriptionPath = await ensureTranscriptionFilename(file);
       const readyTranscriptionPath = transcriptionPath;
       const storedExtension = path.extname(readyTranscriptionPath);
       let transcriptionError: string | undefined;
       let timedWords: Array<{ word: string; start: number; end: number }> = [];
       const transcript = await (recognitionMode === "openai_hybrid"
-        ? transcribeWithWordTimestamps(readyTranscriptionPath)
-            .then((timed) => {
+        ? transcriber(readyTranscriptionPath)
+            .then(async (text) => {
+              const timed = await transcribeWithWordTimestamps(readyTranscriptionPath).catch(() => undefined);
+              if (timed && timedWordsAgreeWithTranscript(timed.words, text)) {
+                timedWords = timed.words;
+              }
+              return text;
+            })
+            .catch(async () => {
+              const timed = await transcribeWithWordTimestamps(readyTranscriptionPath);
               timedWords = timed.words;
               return timed.text;
             })
-            .catch(() => transcriber(readyTranscriptionPath))
         : localTranscriber(readyTranscriptionPath)
       ).catch((error) => {
         transcriptionError = error instanceof Error ? error.message : "Transcription failed.";
         return "";
       });
       const transcriptTokens = tokenizeArabic(transcript);
+      const verses = inferTargetVerses(corpus, surahNumber, ayahStart, explicitAyahEnd, transcript);
       const evaluation = evaluateTajweedTranscript(transcript, verses, timedWords);
       const attempt = user
         ? await store.saveTajweedAttempt(user.id, {
