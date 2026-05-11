@@ -13,6 +13,7 @@ describe("tajweed evaluator", () => {
 
     expect(result.score).toBe(100);
     expect(result.words.find((word) => word.expected?.includes("مَـٰلِكِ"))?.status).toBe("correct");
+    expect(result.ruleSummary.some((item) => item.rule === "Madd")).toBe(true);
     expect(result.words.filter((word) => word.status === "missing" || word.status === "changed")).toHaveLength(0);
   });
 

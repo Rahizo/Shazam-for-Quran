@@ -57,6 +57,8 @@ export type TajweedWordFeedback = {
   heard?: string;
   status: TajweedWordStatus;
   note: string;
+  rules?: string[];
+  improvement?: string;
 };
 
 export type TajweedAttempt = {
@@ -70,6 +72,7 @@ export type TajweedAttempt = {
   transcript: string;
   feedback: TajweedWordFeedback[];
   advice: string[];
+  ruleSummary?: Array<{ rule: string; count: number }>;
   createdAt: string;
 };
 

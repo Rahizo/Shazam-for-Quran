@@ -502,7 +502,8 @@ export function createApp(transcriber: Transcriber = createConfiguredTranscriber
             score: evaluation.score,
             transcript: evaluation.transcript,
             feedback: evaluation.words,
-            advice: evaluation.advice
+            advice: evaluation.advice,
+            ruleSummary: evaluation.ruleSummary
           })
         : undefined;
 

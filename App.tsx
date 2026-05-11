@@ -835,17 +835,39 @@ export default function App() {
                   <Text style={styles.bigScore}>{tajweedResult.score}%</Text>
                   <View style={styles.scoreCopy}>
                     <Text style={styles.matchTitle}>{tajweedResult.summary}</Text>
+                    <Text style={styles.transcriptText}>Word accuracy plus expected tajweed-rule guidance. Timing and makhraj still need deeper audio analysis.</Text>
                     {tajweedResult.advice.map((item) => (
                       <Text key={item} style={styles.translation}>- {item}</Text>
                     ))}
                   </View>
                 </View>
+                {tajweedResult.ruleSummary && tajweedResult.ruleSummary.length > 0 ? (
+                  <View style={styles.rulePanel}>
+                    <Text style={styles.panelTitle}>Tajweed Focus</Text>
+                    <View style={styles.ruleGrid}>
+                      {tajweedResult.ruleSummary.map((item) => (
+                        <View key={item.rule} style={styles.rulePill}>
+                          <Text style={styles.ruleText}>{item.rule}</Text>
+                          <Text style={styles.ruleCount}>{item.count}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
                 {tajweedInfographicUri ? <Image source={{ uri: tajweedInfographicUri }} style={styles.infographic} resizeMode="contain" /> : null}
                 <View style={styles.wordGrid}>
                   {tajweedResult.words.slice(0, 80).map((word) => (
                     <View key={`${word.position}-${word.expected || word.heard}`} style={[styles.wordChip, styles[`${word.status}Word` as keyof typeof styles] as object]}>
                       <Text style={styles.wordArabic}>{word.expected || word.heard}</Text>
                       <Text style={styles.wordNote}>{word.note}</Text>
+                      {word.rules && word.rules.length > 0 ? (
+                        <View style={styles.miniRuleRow}>
+                          {word.rules.slice(0, 3).map((rule) => (
+                            <Text key={rule} style={styles.miniRule}>{rule}</Text>
+                          ))}
+                        </View>
+                      ) : null}
+                      {word.improvement ? <Text style={styles.wordImprove}>{word.improvement}</Text> : null}
                     </View>
                   ))}
                 </View>
@@ -1538,6 +1560,40 @@ const styles = StyleSheet.create({
     borderColor: "#ddd3c3",
     borderRadius: 8
   },
+  rulePanel: {
+    gap: 10,
+    padding: 16,
+    backgroundColor: "#fffdf8",
+    borderWidth: 1,
+    borderColor: "#ddd3c3",
+    borderRadius: 8
+  },
+  ruleGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  rulePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#cfc5b5",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: "#f8f4eb"
+  },
+  ruleText: {
+    color: "#17211f",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  ruleCount: {
+    color: "#0f766e",
+    fontSize: 13,
+    fontWeight: "900"
+  },
   wordGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1582,6 +1638,27 @@ const styles = StyleSheet.create({
   },
   wordNote: {
     color: "#42514d",
+    fontSize: 12,
+    lineHeight: 17
+  },
+  miniRuleRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5
+  },
+  miniRule: {
+    alignSelf: "flex-start",
+    backgroundColor: "#fffdf8",
+    borderRadius: 6,
+    color: "#0f766e",
+    overflow: "hidden",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  wordImprove: {
+    color: "#64736f",
     fontSize: 12,
     lineHeight: 17
   },

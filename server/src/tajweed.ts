@@ -63,7 +63,13 @@ export type TajweedEvaluation = {
   summary: string;
   words: TajweedWordFeedback[];
   advice: string[];
+  ruleSummary: Array<{ rule: string; count: number }>;
   infographicSvg: string;
+};
+
+type TajweedRule = {
+  name: string;
+  improvement: string;
 };
 
 function escapeXml(value: string) {
@@ -87,6 +93,78 @@ function originalArabicWords(text: string) {
         .replace(/^[^\p{Script=Arabic}]+|[^\p{Script=Arabic}\u0610-\u061A\u064B-\u065F\u0670\u0640]+$/gu, "")
     )
     .filter((word) => word.length > 0 && normalizeArabic(word).length > 0);
+}
+
+function uniqueRules(rules: TajweedRule[]) {
+  const seen = new Set<string>();
+  return rules.filter((rule) => {
+    if (seen.has(rule.name)) {
+      return false;
+    }
+    seen.add(rule.name);
+    return true;
+  });
+}
+
+function tajweedRulesForWord(word: string, nextWord?: string): TajweedRule[] {
+  const rules: TajweedRule[] = [];
+  const plain = normalizeArabic(word);
+  const nextPlain = normalizeArabic(nextWord || "");
+  const joinedPlain = `${plain} ${nextPlain}`;
+  const hasTanween = /[\u064B-\u064D]/.test(word);
+  const hasNoonSakinah = /\u0646\u0652/.test(word);
+  const nextFirst = nextPlain[0] || "";
+  const ikhfaLetters = new Set("تثجدذزسشصضطظفقك");
+  const idghamLetters = new Set("يرملون");
+
+  if (/[\u0670]|\u064E[\u0627\u0649]|\u064F\u0648|\u0650\u064A/.test(word)) {
+    rules.push({ name: "Madd", improvement: "Hold the long vowel for its proper count; do not clip it short." });
+  }
+  if (/[\u0646\u0645]\u0651/.test(word)) {
+    rules.push({ name: "Ghunnah", improvement: "Keep the nasal sound smooth and held for about two counts." });
+  }
+  if (/[قطبجد]\u0652/.test(word) || /[قطبجد][\u064B-\u0652]*$/.test(word)) {
+    rules.push({ name: "Qalqalah", improvement: "Give the qalqalah letter a light echo without adding a vowel." });
+  }
+  if (/ٱ?ل[\u0652]?[تثدذرزسشصضطظلن]\u0651/.test(word)) {
+    rules.push({ name: "Lam Shamsiyyah", improvement: "Do not pronounce the lam; merge into the shaddah sun letter." });
+  }
+  if (/الله|اللهم/.test(plain)) {
+    rules.push({ name: "Heavy Lam", improvement: "Pronounce the lam of Allah heavy after fatḥah or ḍammah." });
+  }
+  if (/[خصضغطظق]/.test(plain)) {
+    rules.push({ name: "Tafkheem", improvement: "Keep heavy letters full and elevated without flattening them." });
+  }
+  if ((hasNoonSakinah || hasTanween) && nextFirst === "ب") {
+    rules.push({ name: "Iqlab", improvement: "Convert the noon/tanween sound toward meem with nasalization before ba." });
+  } else if ((hasNoonSakinah || hasTanween) && idghamLetters.has(nextFirst)) {
+    rules.push({ name: "Idgham", improvement: "Merge noon/tanween into the next letter according to the idgham type." });
+  } else if ((hasNoonSakinah || hasTanween) && ikhfaLetters.has(nextFirst)) {
+    rules.push({ name: "Ikhfa", improvement: "Hide the noon/tanween softly with nasalization before the next letter." });
+  }
+  if (/م\u0652/.test(word) && nextFirst === "ب") {
+    rules.push({ name: "Ikhfa Shafawi", improvement: "Hide the meem before ba with a gentle nasal sound." });
+  }
+  if (/م\u0652/.test(word) && nextFirst === "م") {
+    rules.push({ name: "Idgham Shafawi", improvement: "Merge the meem into the next meem with ghunnah." });
+  }
+  if (/ء|أ|إ|ؤ|ئ/.test(word) || joinedPlain.includes("ا ا")) {
+    rules.push({ name: "Hamzah clarity", improvement: "Make the hamzah clean and distinct without swallowing it." });
+  }
+
+  return uniqueRules(rules);
+}
+
+function summarizeRules(words: TajweedWordFeedback[]) {
+  const counts = new Map<string, number>();
+  for (const word of words) {
+    for (const rule of word.rules || []) {
+      counts.set(rule, (counts.get(rule) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([rule, count]) => ({ rule, count }));
 }
 
 function editDistance(a: string, b: string) {
@@ -228,12 +306,13 @@ function alignWords(expectedWords: string[], heardWords: string[]): AlignmentSte
   return steps.reverse();
 }
 
-function feedbackNote(step: AlignmentStep) {
+function feedbackNote(step: AlignmentStep, rules: TajweedRule[]) {
+  const ruleHint = rules.length > 0 ? ` Focus rule: ${rules.slice(0, 2).map((rule) => rule.name).join(", ")}.` : "";
   if (step.status === "correct") {
-    return "Matched clearly.";
+    return `Matched clearly.${ruleHint}`;
   }
   if (step.status === "close") {
-    return "Close, but review the pronunciation carefully.";
+    return `Close, but review the pronunciation carefully.${ruleHint}`;
   }
   if (step.status === "missing") {
     return "This word sounds missing from the recording.";
@@ -270,6 +349,7 @@ function buildAdvice(words: TajweedWordFeedback[], score: number, transcriptToke
   const close = words.filter((word) => word.status === "close").length;
   const extra = words.filter((word) => word.status === "extra").length;
   const advice: string[] = [];
+  const ruleSummary = summarizeRules(words);
 
   if (score >= 90) {
     advice.push("Strong recitation. Repeat once more at the same pace to build consistency.");
@@ -289,6 +369,9 @@ function buildAdvice(words: TajweedWordFeedback[], score: number, transcriptToke
   }
   if (extra > 0) {
     advice.push("Extra words were heard. Make sure the selected surah and ayah range matches what you are reciting.");
+  }
+  if (ruleSummary.length > 0) {
+    advice.push(`Main tajweed focus: ${ruleSummary.slice(0, 3).map((item) => item.rule).join(", ")}.`);
   }
   return advice.slice(0, 4);
 }
@@ -405,15 +488,27 @@ export function evaluateTajweedTranscript(transcript: string, verses: QuranVerse
   const expectedWords = originalArabicWords(expectedText);
   const heardWords = tokenizeArabic(transcript);
   const alignment = alignWords(expectedWords, heardWords);
-  const words: TajweedWordFeedback[] = alignment.map((step, index) => ({
-    position: index + 1,
-    expected: step.expected,
-    heard: step.heard,
-    status: step.status,
-    note: feedbackNote(step)
-  }));
+  const expectedRuleMap = new Map<string, TajweedRule[]>();
+  expectedWords.forEach((word, index) => {
+    expectedRuleMap.set(`${index + 1}:${word}`, tajweedRulesForWord(word, expectedWords[index + 1]));
+  });
+  let expectedPosition = 0;
+  const words: TajweedWordFeedback[] = alignment.map((step, index) => {
+    const currentExpectedPosition = step.expected ? (expectedPosition += 1) : 0;
+    const rules = step.expected ? expectedRuleMap.get(`${currentExpectedPosition}:${step.expected}`) || [] : [];
+    return {
+      position: index + 1,
+      expected: step.expected,
+      heard: step.heard,
+      status: step.status,
+      note: feedbackNote(step, rules),
+      rules: rules.map((rule) => rule.name),
+      improvement: rules[0]?.improvement
+    };
+  });
   const score = scoreAlignment(alignment, expectedWords.length);
   const advice = buildAdvice(words, score, heardWords.length, expectedWords.length);
+  const ruleSummary = summarizeRules(words);
   const first = verses[0];
   const last = verses[verses.length - 1];
   const ayahStart = first.ayahNumber;
@@ -435,6 +530,7 @@ export function evaluateTajweedTranscript(transcript: string, verses: QuranVerse
     summary,
     words,
     advice,
+    ruleSummary,
     infographicSvg: buildInfographicSvg({ surahName: first.surahName, ayahStart, ayahEnd, score, words, advice })
   };
 }

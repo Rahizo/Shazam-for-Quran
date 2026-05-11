@@ -345,7 +345,8 @@ class PrismaStore implements AppStore {
         score: input.score,
         transcript: input.transcript,
         feedbackJson: input.feedback,
-        adviceJson: input.advice
+        adviceJson: input.advice,
+        ruleSummaryJson: input.ruleSummary || []
       }
     });
     return {
@@ -359,6 +360,7 @@ class PrismaStore implements AppStore {
       transcript: item.transcript,
       feedback: item.feedbackJson as TajweedAttempt["feedback"],
       advice: item.adviceJson as string[],
+      ruleSummary: item.ruleSummaryJson as TajweedAttempt["ruleSummary"],
       createdAt: item.createdAt.toISOString()
     };
   }
@@ -376,6 +378,7 @@ class PrismaStore implements AppStore {
       transcript: item.transcript,
       feedback: item.feedbackJson as TajweedAttempt["feedback"],
       advice: item.adviceJson as string[],
+      ruleSummary: item.ruleSummaryJson as TajweedAttempt["ruleSummary"],
       createdAt: item.createdAt.toISOString()
     }));
   }
