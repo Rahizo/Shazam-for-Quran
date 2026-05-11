@@ -57,6 +57,7 @@ export type PublicUser = {
   plan: PlanId;
   subscriptionStatus?: string | null;
   createdAt: string;
+  isAdmin?: boolean;
 };
 
 export type UsageSummary = {
@@ -65,6 +66,7 @@ export type UsageSummary = {
   used: number;
   remaining: number;
   period: "day" | "month";
+  isUnlimited?: boolean;
 };
 
 export type RecognitionHistoryItem = {

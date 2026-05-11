@@ -12,13 +12,26 @@ function authSecret(): string {
   return process.env.AUTH_SECRET || process.env.OPENAI_API_KEY || "dev-only-change-me";
 }
 
+export function isAdminEmail(email?: string | null): boolean {
+  if (!email) {
+    return false;
+  }
+
+  return (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((item: string) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.trim().toLowerCase());
+}
+
 export function toPublicUser(user: StoredUser): PublicUser {
   return {
     id: user.id,
     email: user.email,
     plan: user.plan,
     subscriptionStatus: user.subscriptionStatus || null,
-    createdAt: user.createdAt
+    createdAt: user.createdAt,
+    isAdmin: isAdminEmail(user.email)
   };
 }
 

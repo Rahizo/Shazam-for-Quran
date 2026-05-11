@@ -4,7 +4,7 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { AudioMatchDiagnostics, findAudioMatches } from "./audioFingerprint";
-import { clearSessionCookie, createSessionToken, hashPassword, readSessionToken, setSessionCookie, toPublicUser, verifyPassword, verifySessionToken } from "./auth";
+import { clearSessionCookie, createSessionToken, hashPassword, isAdminEmail, readSessionToken, setSessionCookie, toPublicUser, verifyPassword, verifySessionToken } from "./auth";
 import { createCheckoutSession, handleStripeWebhook } from "./billing";
 import { transcribeWithLocalWhisper } from "./localWhisper";
 import { findMatches } from "./matcher";
@@ -30,7 +30,16 @@ const upload = multer({
 
 const identifyRequests = new Map<string, { count: number; resetAt: number }>();
 
-function rateLimitIdentify(request: express.Request, response: express.Response, next: express.NextFunction) {
+async function rateLimitIdentify(request: express.Request, response: express.Response, next: express.NextFunction) {
+  const session = verifySessionToken(readSessionToken(request));
+  if (session) {
+    const user = await getStore().findUserById(session.userId).catch(() => null);
+    if (isAdminEmail(user?.email)) {
+      next();
+      return;
+    }
+  }
+
   const limit = Number(process.env.API_RATE_LIMIT_PER_HOUR || 30);
   if (limit <= 0) {
     next();

@@ -2,10 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "./app";
 
 describe("identify API", () => {
+  afterEach(() => {
+    delete process.env.ADMIN_EMAILS;
+  });
+
   it("identifies using a mocked transcription and deletes uploaded audio", async () => {
     const tmpFile = path.join(os.tmpdir(), `recitation-${Date.now()}.webm`);
     fs.writeFileSync(tmpFile, "fake audio");
@@ -121,6 +125,25 @@ describe("identify API", () => {
     const dashboard = await request(app).get("/api/dashboard").set("Authorization", `Bearer ${signup.body.token}`);
     expect(dashboard.status).toBe(200);
     expect(dashboard.body.usage.plan).toBe("free");
+  });
+
+  it("marks configured admin emails and gives unlimited usage", async () => {
+    process.env.ADMIN_EMAILS = "owner@example.com";
+    const app = createApp(async () => "");
+    const signup = await request(app).post("/api/auth/signup").send({
+      email: "owner@example.com",
+      password: "password123"
+    });
+
+    expect(signup.status).toBe(200);
+    expect(signup.body.user.isAdmin).toBe(true);
+    expect(signup.body.usage.isUnlimited).toBe(true);
+
+    const me = await request(app)
+      .get("/api/auth/me")
+      .set("Authorization", `Bearer ${signup.body.token}`);
+    expect(me.body.user.isAdmin).toBe(true);
+    expect(me.body.usage.remaining).toBe(999999);
   });
 
   it("requires sign-in before starting checkout", async () => {

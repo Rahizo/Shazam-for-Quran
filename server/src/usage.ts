@@ -1,5 +1,6 @@
 import { AppStore } from "./store";
 import { PlanId, StoredUser, UsageSummary } from "./saasTypes";
+import { isAdminEmail } from "./auth";
 
 function startOfDay() {
   const date = new Date();
@@ -34,6 +35,16 @@ export async function usageSummary(store: AppStore, user: StoredUser | null, ano
   const plan = user?.plan || "free";
   const rule = planLimit(plan);
   const used = await store.countUsage({ userId: user?.id, anonymousKey: user ? undefined : anonymousKey, since: rule.since });
+  if (isAdminEmail(user?.email)) {
+    return {
+      plan,
+      limit: 999999,
+      used,
+      remaining: 999999,
+      period: rule.period,
+      isUnlimited: true
+    };
+  }
   return {
     plan,
     limit: rule.limit,
@@ -45,6 +56,9 @@ export async function usageSummary(store: AppStore, user: StoredUser | null, ano
 
 export async function assertRecognitionAllowed(store: AppStore, user: StoredUser | null, anonymousKey?: string) {
   const summary = await usageSummary(store, user, anonymousKey);
+  if (summary.isUnlimited) {
+    return summary;
+  }
   if (process.env.NODE_ENV === "test") {
     return summary;
   }

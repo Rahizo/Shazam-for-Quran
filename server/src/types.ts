@@ -31,6 +31,7 @@ export type IdentifyResponse = {
     used: number;
     remaining: number;
     period: "day" | "month";
+    isUnlimited?: boolean;
   };
   diagnostics?: {
     audioFile?: {

@@ -614,7 +614,9 @@ export default function App() {
           <View style={styles.accountSummary}>
             <Text style={styles.accountTitle}>{user ? `Signed in as ${user.email}` : "Free Quran recognition"}</Text>
             <Text style={styles.accountMeta}>
-              {usage
+              {user?.isAdmin || usage?.isUnlimited
+                ? `Admin mode: unlimited recognitions${usage ? ` (${usage.used} used this ${usage.period})` : ""}`
+                : usage
                 ? `${usage.remaining} of ${usage.limit} ${usage.period === "day" ? "daily" : "monthly"} recognitions remaining (${usage.plan.replace("_", " ")})`
                 : "Create an account to save history and memorization progress."}
             </Text>
