@@ -237,6 +237,12 @@ function combineHeardMuqattaat(items: TajweedTimedWord[]) {
   const words = items.map((item) => item.word);
   const combined: TajweedTimedWord[] = [];
   for (let index = 0; index < words.length; index += 1) {
+    const currentLetter = muqattaatLetters[words[index]];
+    const nextWord = words[index + 1];
+    if (currentLetter && nextWord && knownMuqattaat.has(nextWord) && nextWord.startsWith(currentLetter)) {
+      continue;
+    }
+
     let matched = false;
     for (let length = 5; length >= 1; length -= 1) {
       const slice = words.slice(index, index + length);
